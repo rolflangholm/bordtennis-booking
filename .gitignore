@@ -1,5 +1,5 @@
 node_modules/
-data/*.json
-data/*.tmp
+data/
+public/config.js
 .DS_Store
 .env

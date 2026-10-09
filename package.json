@@ -1,15 +1,17 @@
 {
   "name": "bordtennis-booking",
   "version": "1.0.0",
-  "description": "Bookingsystem til bordtennisrummet på kontoret – double, 20 minutter ad gangen, live-opdatering.",
-  "main": "server.js",
+  "description": "Bookingsystem til bordtennisrummet på kontoret – double, 20 minutter ad gangen, live-opdatering. Statisk side på GitHub Pages + Supabase.",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node --watch server.js",
+    "start": "node dev-server.js",
+    "demo": "node dev-server.js --demo",
     "test": "node --test"
   },
   "engines": {
     "node": ">=18"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8"
+  }
 }

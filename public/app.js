@@ -1,4 +1,4 @@
-'use strict';
+import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
 
 const $ = (sel) => document.querySelector(sel);
 const esc = (s) =>
@@ -35,16 +35,56 @@ const state = {
   tokens: storage.get('bt-tokens', {}), // { [bookingId]: { owner, seats: { [i]: token } } }
 };
 
-async function api(path, options = {}) {
-  const res = await fetch(path, {
-    headers: { 'Content-Type': 'application/json' },
-    ...options,
-    body: options.body ? JSON.stringify(options.body) : undefined,
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || 'Noget gik galt');
+// ───── Data (Supabase) ─────
+const appConfig = window.BORDTENNIS_CONFIG || {};
+const supabase =
+  appConfig.supabaseUrl && appConfig.supabaseKey ? createClient(appConfig.supabaseUrl, appConfig.supabaseKey) : null;
+
+const hhmm = (t) => t.slice(0, 5);
+const toMinutes = (t) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+const fromMinutes = (m) => `${pad(Math.floor(m / 60))}:${pad(m % 60)}`;
+
+function unwrap({ data, error }) {
+  if (error) throw new Error(error.message || 'Kunne ikke kontakte databasen');
   return data;
 }
+
+async function loadSettings() {
+  const s = unwrap(await supabase.from('settings').select('*').eq('id', 1).single());
+  return {
+    title: s.title,
+    slotMinutes: s.slot_minutes,
+    openTime: hhmm(s.open_time),
+    closeTime: hhmm(s.close_time),
+    daysAhead: s.days_ahead,
+    maxActivePerPerson: s.max_active_per_person,
+    weekends: s.weekends,
+  };
+}
+
+async function fetchDay(date) {
+  const rows = unwrap(
+    await supabase.from('bookings').select('id, date, start, created_by, seats').eq('date', date),
+  );
+  const byStart = new Map(rows.map((b) => [hhmm(b.start), b]));
+  const { openTime, closeTime, slotMinutes } = state.config;
+  const now = new Date();
+  const slots = [];
+  for (let t = toMinutes(openTime); t + slotMinutes <= toMinutes(closeTime); t += slotMinutes) {
+    const start = fromMinutes(t);
+    const [y, m, d] = date.split('-').map(Number);
+    const b = byStart.get(start);
+    slots.push({
+      start,
+      end: fromMinutes(t + slotMinutes),
+      past: new Date(y, m - 1, d, 0, t + slotMinutes) <= now,
+      booking: b ? { ...b, start: hhmm(b.start) } : null,
+    });
+  }
+  return slots;
+}
+
+const rpc = async (fn, args) => unwrap(await supabase.rpc(fn, args));
 
 function toast(msg, isError = false) {
   const el = $('#toast');
@@ -213,12 +253,12 @@ function freeUntil(slots, idx) {
 
 async function loadDay() {
   const today = isoDate(new Date());
-  const [day, todayData] = await Promise.all([
-    api(`/api/bookings?date=${state.date}`),
-    state.date === today ? null : api(`/api/bookings?date=${today}`),
+  const [day, todaySlots] = await Promise.all([
+    fetchDay(state.date),
+    state.date === today ? null : fetchDay(today),
   ]);
-  state.slots = day.slots;
-  state.todaySlots = todayData ? todayData.slots : day.slots;
+  state.slots = day;
+  state.todaySlots = todaySlots || day;
   renderSlots();
   renderStatus();
 }
@@ -258,16 +298,19 @@ function openBooking(date, start) {
     e.preventDefault();
     const name = form.p0.value.trim();
     try {
-      const res = await api('/api/bookings', {
-        method: 'POST',
-        body: { date, start, name, players: [form.p1.value, form.p2.value, form.p3.value] },
+      const res = await rpc('book_slot', {
+        p_date: date,
+        p_start: start,
+        p_name: name,
+        p_players: [form.p1.value, form.p2.value, form.p3.value],
       });
       if (!state.name) {
         state.name = name;
         storage.set('bt-name', name);
         renderWho();
       }
-      saveTokens(res.booking.id, { owner: res.ownerToken, seats: { 0: res.seatTokens[0] } });
+      // Kun din egen plads markeres som "din"; bookertokenet kan fjerne de andre.
+      saveTokens(res.booking.id, { owner: res.owner_token, seats: { 0: res.seat_tokens[0] } });
       dlg.close();
       toast(`Booket ${start} 🏓`);
       loadDay();
@@ -281,8 +324,8 @@ async function join(id, seat) {
   const name = state.name || (await askName());
   if (!name) return;
   try {
-    const res = await api(`/api/bookings/${id}/join`, { method: 'POST', body: { seat, name, date: state.date } });
-    saveTokens(id, { seats: { [seat]: res.seatToken } });
+    const res = await rpc('join_seat', { p_id: id, p_seat: seat, p_name: name });
+    saveTokens(id, { seats: { [seat]: res.seat_token } });
     toast('Du er med! 🏓');
   } catch (err) {
     toast(err.message, true);
@@ -293,10 +336,7 @@ async function join(id, seat) {
 async function leave(id, seat) {
   const t = state.tokens[id] || {};
   try {
-    await api(`/api/bookings/${id}/leave`, {
-      method: 'POST',
-      body: { seat, token: t.seats?.[seat] || t.owner, date: state.date },
-    });
+    await rpc('leave_seat', { p_id: id, p_seat: seat, p_token: t.seats?.[seat] || t.owner || null });
     forgetSeat(id, seat);
     toast('Fjernet fra kampen');
   } catch (err) {
@@ -308,10 +348,7 @@ async function leave(id, seat) {
 async function cancel(id) {
   if (!confirm('Aflys hele bookingen?')) return;
   try {
-    await api(`/api/bookings/${id}/cancel`, {
-      method: 'POST',
-      body: { token: state.tokens[id]?.owner, date: state.date },
-    });
+    await rpc('cancel_booking', { p_id: id, p_token: state.tokens[id]?.owner || null });
     delete state.tokens[id];
     storage.set('bt-tokens', state.tokens);
     toast('Bookingen er aflyst – bordet er ledigt igen');
@@ -345,14 +382,26 @@ function bindEvents() {
 }
 
 function connectLive() {
-  const es = new EventSource('/api/events');
-  es.addEventListener('change', () => loadDay());
-  // EventSource genforbinder selv; hent frisk data når forbindelsen er tilbage.
-  es.addEventListener('open', () => state.slots.length && loadDay());
+  if (appConfig.realtime === false) return;
+  let timer;
+  supabase
+    .channel('bookings')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'bookings' }, () => {
+      clearTimeout(timer); // saml flere ændringer i ét kald
+      timer = setTimeout(loadDay, 150);
+    })
+    .subscribe();
+}
+
+function showSetupHelp() {
+  $('#status').className = 'status';
+  $('#status').innerHTML = `<div><p class="big"><span class="dot"></span>Mangler opsætning</p>
+    <p class="small">Udfyld <code>public/config.js</code> med jeres Supabase-adresse og nøgle – se README.</p></div>`;
 }
 
 async function init() {
-  state.config = await api('/api/config');
+  if (!supabase) return showSetupHelp();
+  state.config = await loadSettings();
   document.title = state.config.title;
   $('#title').textContent = state.config.title;
   $('#hidePast').checked = storage.get('bt-hidePast', true);
@@ -367,8 +416,9 @@ async function init() {
   bindEvents();
   await loadDay();
   connectLive();
-  // Opdatér "nu"-markering og status hvert halve minut.
+  // Opdatér "nu"-markering og status hvert halve minut (og som backup for live-opdatering).
   setInterval(loadDay, 30_000);
+  document.addEventListener('visibilitychange', () => !document.hidden && loadDay());
 }
 
 init().catch((err) => toast(err.message, true));
