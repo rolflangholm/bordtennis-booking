@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="da">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Bordtennis booking</title>
+  <meta name="theme-color" content="#0f5c4a">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <img src="icon.svg" alt="" width="32" height="32">
+      <h1 id="title">Bordtennis booking</h1>
+    </div>
+    <button id="who" class="chip" type="button" title="Skift navn">Hvem er du?</button>
+  </header>
+
+  <main>
+    <section id="status" class="status" aria-live="polite"></section>
+
+    <nav id="days" class="days" aria-label="Vælg dag"></nav>
+
+    <div class="listhead">
+      <h2 id="dayTitle"></h2>
+      <label class="toggle"><input id="hidePast" type="checkbox" checked> Skjul passerede</label>
+    </div>
+
+    <ol id="slots" class="slots"></ol>
+    <p class="foot" id="rules"></p>
+  </main>
+
+  <dialog id="bookDialog">
+    <form id="bookForm" method="dialog">
+      <h3>Book <span id="bookWhen"></span></h3>
+      <div class="teams">
+        <fieldset>
+          <legend>Hold A</legend>
+          <input name="p0" placeholder="Dit navn" required maxlength="40" autocomplete="name">
+          <input name="p1" placeholder="Din makker" maxlength="40">
+        </fieldset>
+        <span class="vs">vs</span>
+        <fieldset>
+          <legend>Hold B</legend>
+          <input name="p2" placeholder="Modstander" maxlength="40">
+          <input name="p3" placeholder="Modstander" maxlength="40">
+        </fieldset>
+      </div>
+      <p class="hint">Mangler I spillere? Lad felterne stå tomme – så kan kollegerne tilmelde sig.</p>
+      <div class="actions">
+        <button type="button" class="ghost" data-close>Annullér</button>
+        <button type="submit" class="primary">Book bordet</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="nameDialog">
+    <form id="nameForm" method="dialog">
+      <h3>Hvad hedder du?</h3>
+      <p class="hint">Gemmes kun i din browser, så du ikke skal skrive det hver gang.</p>
+      <input name="name" placeholder="Fx Rolf" required maxlength="40" autocomplete="name">
+      <div class="actions">
+        <button type="button" class="ghost" data-close>Annullér</button>
+        <button type="submit" class="primary">Gem</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" role="status"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
