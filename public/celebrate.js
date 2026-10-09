@@ -1,6 +1,6 @@
 // Motion: fejring når et resultat gemmes, konfetti og "BETALT"-stempel.
-import { esc, reducedMotion, teamName } from './core.js?v=dev';
-import { drinkSvg, drinkName, trophySvg } from './drinks.js?v=dev';
+import { esc, reducedMotion } from './core.js?v=dev';
+import { DRINKS, drinkSvg, trophySvg } from './drinks.js?v=dev';
 
 const SPRING = 'cubic-bezier(.2, 1.35, .4, 1)';
 const OUT = 'cubic-bezier(.16, 1, .3, 1)';
@@ -130,7 +130,8 @@ export function stagger(elements, { delay = 0, gap = 45, y = 14 } = {}) {
 
 // ───── Fejring når et resultat er gemt ─────
 
-export function celebrate({ winners, losers, stake, count, score }) {
+export function celebrate({ winners, debts, score }) {
+  const count = debts.length;
   const reduce = reducedMotion();
   const words = `${winners.join(' & ')} vinder!`.split(' ');
   const root = document.createElement('div');
@@ -142,8 +143,10 @@ export function celebrate({ winners, losers, stake, count, score }) {
       <p class="cel-kicker">Kampen er afgjort</p>
       <h2 class="cel-title">${words.map((w) => `<span>${esc(w)}</span>`).join(' ')}</h2>
       ${score ? `<p class="cel-score"><span data-to="${score[0]}">0</span><i>–</i><span data-to="${score[1]}">0</span></p>` : ''}
-      <div class="cel-drinks">${Array.from({ length: count }, () => `<div class="cel-drink">${drinkSvg(stake, { size: 104 })}</div>`).join('')}</div>
-      <p class="cel-debt"><b>${teamName(losers)}</b> giver ${esc(drinkName(stake, count))}</p>
+      <div class="cel-drinks">${debts.map((d) => `<div class="cel-drink">${drinkSvg(d.stake, { size: count > 3 ? 80 : 104 })}</div>`).join('')}</div>
+      <ul class="cel-debts">${debts
+        .map((d) => `<li><b>${esc(d.debtor)}</b> giver <b>${esc(d.creditor)}</b> en ${esc(DRINKS[d.stake].inline)}</li>`)
+        .join('')}</ul>
       <button type="button" class="primary cel-ok">Fedt! 🏓</button>
     </div>`;
   document.body.append(root);
@@ -215,7 +218,7 @@ export function celebrate({ winners, losers, stake, count, score }) {
     });
     const tDebt = t0 + 500 + count * 150;
     for (const [sel, delay] of [
-      ['.cel-debt', tDebt],
+      ['.cel-debts', tDebt],
       ['.cel-ok', tDebt + 150],
     ]) {
       q(sel).animate([{ opacity: 0, transform: 'translateY(12px)' }, { opacity: 1, transform: 'none' }], {
@@ -237,7 +240,7 @@ export function celebrate({ winners, losers, stake, count, score }) {
           ],
           count: 170,
           power: Math.max(1, innerHeight / 700),
-          colors: [...PALETTE, stake === 'arla' ? '#8f5d3f' : '#cfe6f2'],
+          colors: [...PALETTE, '#8f5d3f', '#cfe6f2'],
         }),
       260,
     );
@@ -290,4 +293,13 @@ export function stampPaid(row) {
     { duration: 520 },
   );
   setTimeout(() => confettiAt(stamp, { count: 22 }), 260);
+}
+
+// Lille "hop" når et tal ændrer sig.
+export function bump(el) {
+  if (reducedMotion() || !el) return;
+  el.animate(
+    [{ transform: 'scale(1)' }, { transform: 'scale(1.35)', color: 'var(--free)' }, { transform: 'scale(1)' }],
+    { duration: 450, easing: 'cubic-bezier(.3,1.6,.5,1)' },
+  );
 }

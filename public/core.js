@@ -65,8 +65,21 @@ export const tokens = {
   ownerOf(bookingId) {
     return this.bookings[bookingId]?.owner || null;
   },
+  // Er jeg med i denne booking (som booker eller med en plads)?
+  isPlayer(bookingId) {
+    const t = this.bookings[bookingId];
+    return Boolean(t && (t.owner || Object.values(t.seats || {}).some(Boolean)));
+  },
+  // Nøgle der må rette et resultat med det vinderhold: bookerens, ellers en vinders plads.
+  forWinner(bookingId, winner) {
+    const t = this.bookings[bookingId];
+    if (!t) return null;
+    if (t.owner) return t.owner;
+    for (const i of winner === 'A' ? [0, 1] : [2, 3]) if (t.seats?.[i]) return t.seats[i];
+    return null;
+  },
   forResult(r) {
-    return this.results[r.id] || (r.booking_id && this.ownerOf(r.booking_id)) || null;
+    return (r.booking_id && this.forWinner(r.booking_id, r.winner)) || this.results[r.id] || null;
   },
 };
 

@@ -33,6 +33,7 @@ async function loadSettings() {
     daysAhead: s.days_ahead,
     maxActivePerPerson: s.max_active_per_person,
     weekends: s.weekends,
+    fridgeLowAt: s.fridge_low_at ?? 4,
   };
 }
 
@@ -178,7 +179,7 @@ function renderSlots() {
       const owner = isOwner(b);
       const cancel = owner && !slot.started ? `<button type="button" class="link" data-cancel="${b.id}">Aflys</button>` : '';
       const resultBtn =
-        owner && slot.started && hasTeams(b)
+        tokens.isPlayer(b.id) && slot.started && hasTeams(b)
           ? `<button type="button" class="${result ? 'link' : 'primary small'}" data-result-slot="${slot.start}">${result ? 'Ret resultat' : '🏆 Resultat'}</button>`
           : '';
       return `<li class="${cls}">${time}
@@ -257,6 +258,16 @@ async function loadDay() {
 
 // ───── Navn, booking, tilmelding ─────
 
+// "Det er mig": hent nøglerne til de pladser, hvor dit navn står, så du kan rette resultater, du har vundet.
+async function claimSeats() {
+  if (!state.name) return;
+  try {
+    const claimed = await rpc('claim_my_seats', { p_name: state.name });
+    for (const c of claimed) saveTokens(c.booking_id, { seats: { [c.seat]: c.token } });
+    if (claimed.length) refreshAll();
+  } catch {}
+}
+
 function renderWho() {
   $('#who').textContent = state.name ? `👋 ${state.name}` : 'Hvem er du?';
 }
@@ -273,6 +284,7 @@ function askName() {
       storage.set('bt-name', state.name);
       renderWho();
       dlg.close();
+      claimSeats();
       resolve(state.name);
     };
     dlg.onclose = () => resolve(state.name || null);
@@ -425,6 +437,8 @@ function connectLive() {
     .channel('bordtennis')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'bookings' }, later)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'results' }, later)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'result_debts' }, later)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'fridge' }, later)
     .subscribe();
 }
 
@@ -462,10 +476,11 @@ function renderRules() {
     [
       'Scoreboard',
       [
-        'Vi spiller om en <b>hvid Monster</b> eller en <b>Arla Protein kakao</b>. Taberne giver, som standard én til hver vinder.',
-        'Kun <b>den der bookede bordet</b> kan indtaste, rette og slette resultatet, og kun fra den samme browser.',
-        'Resultatet kan indtastes, så snart kampen er gået i gang.',
-        'Når drikkene er betalt eller taget fra køleskabet, sætter bookeren kryds i <b>Betalt</b>.',
+        'Vi spiller om <b>hvid Monster</b> og <b>Arla Protein kakao</b>. Hver taber giver en drik til en vinder, fx Rolf → Henrik: Monster og Bo → Dennis: Protein kakao.',
+        '<b>Bookeren og vinderne</b> kan indtaste, rette og slette resultatet, så snart kampen er gået i gang.',
+        'Siden genkender dig på dit navn under <b>Hvem er du?</b>: står dit navn i en kamp, får din browser lov til at rette den. Brug derfor altid dit eget navn.',
+        'Når en drik er betalt eller taget fra køleskabet, sætter en vinder kryds i <b>Betalt</b>. Så går den automatisk fra i køleskabet.',
+        'Fylder du køleskabet op, så tryk <b>Ret antal</b> under Køleskabet, så alle kan se, hvad der er tilbage.',
       ],
     ],
     [
@@ -534,7 +549,13 @@ async function init() {
   renderRules();
   renderWho();
   bindEvents();
-  scoreboardEvents({ onChange: refreshAll, weekends: state.config.weekends });
+  scoreboardEvents({
+    onChange: refreshAll,
+    weekends: state.config.weekends,
+    lowAt: state.config.fridgeLowAt,
+    myName: () => state.name,
+  });
+  await claimSeats();
   tick();
   connectLive();
   setView(location.hash === '#scoreboard' ? 'score' : 'booking', { push: false });

@@ -59,6 +59,7 @@
         <div id="scoreTabs" class="seg" role="tablist" aria-label="Periode">
           <button type="button" role="tab" data-mode="day">Dag</button>
           <button type="button" role="tab" data-mode="week">Uge</button>
+          <button type="button" role="tab" data-mode="month">Måned</button>
           <button type="button" role="tab" data-mode="all">Alt</button>
         </div>
       </div>
@@ -74,10 +75,11 @@
 
       <section class="card fridge-card">
         <div class="card-head">
-          <h3>🧊 Køleskabet <span>mangler at blive betalt</span></h3>
-          <span id="fridgeCount" class="pill"></span>
+          <h3>🧊 Køleskabet</h3>
+          <button id="editFridge" type="button" class="ghost small">Ret antal</button>
         </div>
-        <div id="fridge"></div>
+        <div id="fridge" class="fridge"></div>
+        <div id="fridgeLog" class="fridge-log"></div>
       </section>
 
       <section class="card">
@@ -131,31 +133,50 @@
         </div>
       </div>
 
-      <h4>Hvad blev der spillet om?</h4>
-      <div class="stakes">
-        <button id="stakeMonster" type="button" class="stake-pick" aria-pressed="true">
-          <span class="stake-art"></span><b>Hvid Monster</b>
-        </button>
-        <button id="stakeArla" type="button" class="stake-pick" aria-pressed="false">
-          <span class="stake-art"></span><b>Arla Protein kakao</b>
-        </button>
-      </div>
-
-      <div class="count-row">
-        <span>Antal</span>
-        <div class="stepper">
-          <button id="countMinus" type="button" aria-label="Færre">−</button>
-          <output id="stakeCount">2</output>
-          <button id="countPlus" type="button" aria-label="Flere">+</button>
-        </div>
-        <small id="stakeHint"></small>
-      </div>
+      <h4>Hvem giver hvad til hvem?</h4>
+      <div id="debtRows" class="debt-rows"></div>
+      <button id="addDebt" type="button" class="add-debt" hidden>+ Tilføj en drik</button>
+      <p id="debtSummary" class="debt-summary"></p>
 
       <div class="actions">
         <button id="deleteResult" type="button" class="link danger" hidden>Slet resultat</button>
         <span class="spacer"></span>
         <button type="button" class="ghost" data-close>Annullér</button>
         <button id="saveResult" type="submit" class="primary">Gem resultat</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="fridgeDialog" class="fridge-dlg">
+    <form id="fridgeForm" method="dialog">
+      <h3>🧊 Hvor mange er der i køleskabet?</h3>
+      <p class="hint">Tæl efter, eller skriv det nye antal, når I har fyldt op. Det bliver logget med dit navn.</p>
+      <div class="fridge-edit">
+        <div class="fe-item">
+          <span id="fridgeMonsterArt" class="fe-art"></span>
+          <b>Hvid Monster</b>
+          <div class="stepper big">
+            <button type="button" data-step="-1" data-field="monster" aria-label="Én færre Monster">−</button>
+            <input name="monster" type="number" inputmode="numeric" min="0" max="999" aria-label="Antal hvid Monster">
+            <button type="button" data-step="1" data-field="monster" aria-label="Én flere Monster">+</button>
+          </div>
+          <button type="button" class="quick" data-step="12" data-field="monster">+12</button>
+        </div>
+        <div class="fe-item">
+          <span id="fridgeArlaArt" class="fe-art"></span>
+          <b>Arla Protein kakao</b>
+          <div class="stepper big">
+            <button type="button" data-step="-1" data-field="arla" aria-label="Én færre Protein kakao">−</button>
+            <input name="arla" type="number" inputmode="numeric" min="0" max="999" aria-label="Antal Arla Protein kakao">
+            <button type="button" data-step="1" data-field="arla" aria-label="Én flere Protein kakao">+</button>
+          </div>
+          <button type="button" class="quick" data-step="12" data-field="arla">+12</button>
+        </div>
+      </div>
+      <label class="fe-name">Dit navn <input name="name" required maxlength="40" placeholder="Fx Festudvalget"></label>
+      <div class="actions">
+        <button type="button" class="ghost" data-close>Annullér</button>
+        <button type="submit" class="primary">Gem</button>
       </div>
     </form>
   </dialog>

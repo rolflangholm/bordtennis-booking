@@ -10,8 +10,10 @@ Et lille bookingsystem til bordtennisrummet på kontoret. Slut med at stå og ve
 - **Fair brug**: hver person kan højst være med i 2 kommende kampe (kan ændres)
 - Kun den der bookede kan aflyse, og man kan kun fjerne sig selv
 - **Regler** på siden (knappen *Regler*), som bruger de aktuelle indstillinger og vises automatisk første gang
-- **Scoreboard** med dag, uge og alt: podie, stilling, hvem der skylder hvad, og en fejring med konfetti, når et resultat gemmes
-- **Vi spiller om** en hvid Monster eller en Arla Protein kakao. Kun den der bookede kan indtaste resultatet og sætte kryds ved *Betalt / taget fra køleskabet*
+- **Scoreboard** med dag, uge, måned og alt: podie, stilling, kamphistorik og en fejring med konfetti, når et resultat gemmes
+- **Vi spiller om** hvid Monster og Arla Protein kakao. Hver taber giver en drik til en vinder (fx Rolf → Henrik: Monster, Bo → Dennis: Protein kakao), og hver drik har sit eget *Betalt*-kryds
+- **Bookeren og vinderne** kan indtaste og rette resultatet. Siden genkender dig på navnet under *Hvem er du?*
+- **Køleskabet** delt op pr. produkt: lager, hvem der skylder, "snart tomt"-varsel og log. Tæller automatisk ned, når en drik krydses af, og alle kan rette antallet efter påfyldning
 - **Dagens motivation**: et nyt motiverende citat hver dag, det samme for alle. Flere kan tilføjes i `public/quotes.js`
 - Virker på mobil og har dark mode
 
@@ -63,6 +65,7 @@ Indstillingerne ligger i databasen. Ret dem i Supabase under **Table Editor → 
 | `max_active_per_person` | `2` | Max kommende kampe pr. person (`0` = ingen grænse) |
 | `weekends` | `false` | Tillad booking lørdag og søndag |
 | `timezone` | `Europe/Copenhagen` | Kontorets tidszone |
+| `fridge_low_at` | `4` | Køleskabet vises som "snart tomt", når der er så få tilbage (grundlag for påmindelser til festudvalget) |
 
 Skifter I `slot_minutes` eller `open_time`, bør eksisterende fremtidige bookinger passe til det nye tidsgitter. Ellers vises de ikke.
 

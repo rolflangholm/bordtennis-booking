@@ -18,16 +18,17 @@ const MIME = {
   '.svg': 'image/svg+xml',
 };
 
-const TABLES = new Set(['settings', 'bookings', 'results']);
+const TABLES = new Set(['settings', 'bookings', 'results', 'result_debts', 'fridge', 'fridge_log']);
 const FUNCTIONS = new Set([
-  'book_slot', 'join_seat', 'leave_seat', 'cancel_booking', 'save_result', 'set_result_paid', 'delete_result',
+  'book_slot', 'join_seat', 'leave_seat', 'cancel_booking', 'save_result', 'set_debt_paid', 'delete_result',
+  'claim_my_seats', 'set_fridge_stock',
 ]);
 let db;
 
 async function startDemoDb() {
   const { PGlite } = require('@electric-sql/pglite');
   // Datoer sendes som "YYYY-MM-DD" ligesom hos Supabase (ikke som JS Date).
-  db = new PGlite(process.env.DEMO_DB || path.join(__dirname, 'data', 'demo-db'), { parsers: { 1082: (v) => v } });
+  db = new PGlite(process.env.DEMO_DB || path.join(__dirname, 'data', 'demo-db'), { parsers: { 1082: (v) => v, 20: Number } });
   await db.exec(`do $$ begin
     if not exists (select 1 from pg_roles where rolname = 'anon') then create role anon nologin; end if;
     if not exists (select 1 from pg_roles where rolname = 'authenticated') then create role authenticated nologin; end if;
@@ -68,7 +69,12 @@ async function handleRest(req, res, url) {
       const args = await readJson(req);
       const keys = Object.keys(args).filter((k) => /^p_\w+$/.test(k));
       const sql = `select public.${rpc[1]}(${keys.map((k, i) => `${k} => $${i + 1}`).join(', ')}) as r`;
-      const { rows } = await db.query(sql, keys.map((k) => args[k]));
+      // Lister af objekter (fx p_debts) er jsonb; lister af tekst (p_players) er text[].
+      const values = keys.map((k) => {
+        const v = args[k];
+        return Array.isArray(v) && v.some((x) => x && typeof x === 'object') ? JSON.stringify(v) : v;
+      });
+      const { rows } = await db.query(sql, values);
       return send(res, 200, rows[0].r);
     }
 

@@ -2,8 +2,8 @@
 let uid = 0;
 
 export const DRINKS = {
-  monster: { name: 'Hvid Monster', short: 'Monster', color: '#cfe6f2' },
-  arla: { name: 'Arla Protein kakao', short: 'Protein kakao', color: '#8b5a3c' },
+  monster: { name: 'Hvid Monster', inline: 'hvid Monster', short: 'Monster', color: '#cfe6f2' },
+  arla: { name: 'Arla Protein kakao', inline: 'Arla Protein kakao', short: 'Protein kakao', color: '#8b5a3c' },
 };
 
 export const drinkName = (stake, count = 1) => `${count}× ${DRINKS[stake]?.name ?? stake}`;
