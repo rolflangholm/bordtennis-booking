@@ -1,5 +1,5 @@
-// Taber-animationen: vises på tabernes skærm. Vinderne står på podiet med NSF-kongekroner
-// og jubler med pokalen, mens taberen står nedenfor under en regnsky med drikken, de skylder.
+// Taber-animationen: vises på tabernes skærm. Vinderne står på podiet med kongekroner og
+// jubler med pokalen, mens taberne står nedenfor og banker sig selv i hovedet med et bat.
 import { esc, reducedMotion } from './core.js?v=dev';
 import { DRINKS, drinkSvg } from './drinks.js?v=dev';
 
@@ -16,20 +16,24 @@ const initials = (name) =>
     .toUpperCase();
 const skinFor = (name) => SKIN[[...name].reduce((s, c) => s + c.charCodeAt(0), 0) % SKIN.length];
 
-// NSF-kongekrone: guldkrone med et marineblåt bånd, hvor der står NSF.
+// Kongekrone: guldkrone med fem takker, perler, juveler, rød fløjl og et kors på toppen.
 function crown(id) {
   return `<g class="crown">
     <defs>
       <linearGradient id="cg${id}" x1="0" x2="1">
-        <stop offset="0" stop-color="#c98a12"/><stop offset=".45" stop-color="#ffe08a"/><stop offset="1" stop-color="#b8780a"/>
+        <stop offset="0" stop-color="#b8780a"/><stop offset=".4" stop-color="#ffe08a"/><stop offset=".7" stop-color="#e8b23a"/><stop offset="1" stop-color="#a86d08"/>
       </linearGradient>
     </defs>
-    <path d="M-20 0 -22 -24 -11 -12 0 -30 11 -12 22 -24 20 0Z" fill="url(#cg${id})" stroke="#9a6a08" stroke-width="1"/>
-    <circle cx="-22" cy="-25" r="2.6" fill="#ffe08a"/><circle cx="0" cy="-31" r="3" fill="#ffe08a"/><circle cx="22" cy="-25" r="2.6" fill="#ffe08a"/>
-    <rect x="-21" y="-8" width="42" height="10" rx="2" fill="#003858"/>
-    <text x="0" y="0" text-anchor="middle" font-family="Plus Jakarta Sans, sans-serif" font-size="8.5" font-weight="800"
-      letter-spacing="1.5" fill="#ffffff">NSF</text>
-    <circle cx="-11" cy="-15" r="1.8" fill="#c9372c"/><circle cx="11" cy="-15" r="1.8" fill="#1b6f9e"/>
+    <path d="M-15 -6q15 -22 30 0Z" fill="#a3172a"/>
+    <path d="M-20 0 -23 -22 -14 -11 -8 -26 0 -13 8 -26 14 -11 23 -22 20 0Z" fill="url(#cg${id})" stroke="#8a5a06" stroke-width=".8" stroke-linejoin="round"/>
+    <circle cx="-23" cy="-23.5" r="2.4" fill="#fff6dc" stroke="#c9a24a" stroke-width=".6"/>
+    <circle cx="-8" cy="-27.5" r="2.4" fill="#fff6dc" stroke="#c9a24a" stroke-width=".6"/>
+    <circle cx="8" cy="-27.5" r="2.4" fill="#fff6dc" stroke="#c9a24a" stroke-width=".6"/>
+    <circle cx="23" cy="-23.5" r="2.4" fill="#fff6dc" stroke="#c9a24a" stroke-width=".6"/>
+    <path d="M0 -13v-20M-4.5 -28h9" stroke="url(#cg${id})" stroke-width="3" stroke-linecap="round"/>
+    <rect x="-21" y="-6" width="42" height="7" rx="2" fill="url(#cg${id})" stroke="#8a5a06" stroke-width=".6"/>
+    <circle cx="-12" cy="-2.5" r="2" fill="#c9372c"/><circle cx="0" cy="-2.5" r="2.4" fill="#1b6f9e"/><circle cx="12" cy="-2.5" r="2" fill="#2fa36b"/>
+    <path d="M-17 -18l3 -1" stroke="#fff" stroke-opacity=".7" stroke-width="1.4" stroke-linecap="round"/>
   </g>`;
 }
 
@@ -63,10 +67,17 @@ function figure(name, { pose, jersey, withTrophy = false }) {
        <path class="tear" d="M7 -86q2 4 0 6q-2 -2 0 -6Z" fill="#7cc0e8"/>`;
   // Arme: vinderne med hænderne i vejret, taberen med hængende arme.
   const arms = cheer
-    ? `<g class="arm arm-l"><path d="M-14 -62 -30 -96" stroke="${jersey}" stroke-width="9" stroke-linecap="round"/><circle cx="-31" cy="-99" r="5.5" fill="${skin}"/></g>
+    ? `<g class="arm arm-l"><path d="M-14 -62 -30 -96" stroke="${jersey}" stroke-width="9" stroke-linecap="round"/>
+         ${withTrophy ? `<g transform="translate(-31 -97) scale(.9)">${trophy(id)}</g>` : ''}<circle cx="-31" cy="-99" r="5.5" fill="${skin}"/></g>
        <g class="arm arm-r"><path d="M14 -62 30 -96" stroke="${jersey}" stroke-width="9" stroke-linecap="round"/><circle cx="31" cy="-99" r="5.5" fill="${skin}"/></g>`
     : `<g class="arm arm-l"><path d="M-13 -60 -18 -32" stroke="${jersey}" stroke-width="8" stroke-linecap="round"/><circle cx="-18" cy="-29" r="5" fill="${skin}"/></g>
-       <g class="arm arm-r"><path d="M13 -60 18 -32" stroke="${jersey}" stroke-width="8" stroke-linecap="round"/><circle cx="18" cy="-29" r="5" fill="${skin}"/></g>`;
+       <g class="bonk-arm">
+         <path d="M13 -60 24 -84" stroke="${jersey}" stroke-width="8" stroke-linecap="round"/>
+         <path d="M25 -88 28.5 -96" stroke="#b07a46" stroke-width="5" stroke-linecap="round"/>
+         <ellipse cx="31" cy="-106" rx="11" ry="12.5" transform="rotate(12 31 -106)" fill="#c9372c" stroke="#3a1a12" stroke-width="2"/>
+         <path d="M25 -111q4 -4 9 -2" stroke="#fff" stroke-opacity=".45" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+         <circle cx="24" cy="-86" r="5" fill="${skin}"/>
+       </g>`;
   return `<g class="fig ${cheer ? 'winner' : 'loser'}">
     <g class="body">
       <path d="M-8 -26v24M8 -26v24" stroke="#0f2533" stroke-width="7" stroke-linecap="round"/>
@@ -80,7 +91,11 @@ function figure(name, { pose, jersey, withTrophy = false }) {
         ${face}
         ${cheer ? `<g class="crown-wrap" transform="translate(0 -100)">${crown(id)}</g>` : ''}
       </g>
-      ${withTrophy ? `<g class="trophy-wrap" transform="translate(0 -104)">${trophy(id)}</g>` : ''}
+      ${cheer ? '' : `<g class="stars" aria-hidden="true">
+        <path d="M-16 -112l1.5 3.5 3.5 .5-2.6 2.4.7 3.6-3.1-1.8-3.1 1.8.7-3.6-2.6-2.4 3.5-.5Z" fill="#ffd66b"/>
+        <path d="M2 -121l1.5 3.5 3.5 .5-2.6 2.4.7 3.6-3.1-1.8-3.1 1.8.7-3.6-2.6-2.4 3.5-.5Z" fill="#ffe08a"/>
+        <path d="M-2 -110l1 2.4 2.4 .3-1.8 1.6.5 2.4-2.1-1.2-2.1 1.2.5-2.4-1.8-1.6 2.4-.3Z" fill="#fff"/>
+      </g>`}
     </g>
     <text class="fig-name" x="0" y="16" text-anchor="middle">${esc(name)}</text>
   </g>`;
