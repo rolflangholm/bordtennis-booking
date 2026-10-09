@@ -904,3 +904,69 @@ legend { font-size: 0.8rem; font-weight: 700; color: var(--muted); margin-bottom
   .res-top { grid-template-columns: 42px 1fr auto; }
   .res .debt { margin-left: 0; }
 }
+
+/* ───── Taber-animationen ───── */
+.taunt {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: radial-gradient(circle at 50% 30%, rgb(0 74 116 / 0.85), rgb(0 18 28 / 0.95));
+  backdrop-filter: blur(6px);
+}
+.taunt-card {
+  width: min(460px, 100%);
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  display: grid;
+  justify-items: center;
+  text-align: center;
+  padding: 22px 18px 18px;
+  border-radius: 26px;
+  background: linear-gradient(180deg, #0b2f47 0%, #003858 100%);
+  color: #fff;
+  box-shadow: 0 40px 100px rgb(0 0 0 / 0.5), inset 0 1px 0 rgb(255 255 255 / 0.12);
+}
+.taunt-kicker { margin: 0; font-size: 0.75rem; font-weight: 800; letter-spacing: 0.18em; text-transform: uppercase; color: #7cc0e8; }
+.taunt-title { margin: 6px 0 4px; font-size: clamp(1.3rem, 5.5vw, 1.7rem); font-weight: 800; line-height: 1.2; letter-spacing: -0.01em; }
+.taunt-scene { width: 100%; max-width: 420px; height: auto; overflow: visible; }
+.taunt-scene .fig-name { font: 800 11px "Plus Jakarta Sans", sans-serif; fill: #fff; }
+.taunt-scene .loser .fig-name { fill: #b9cad4; }
+.taunt-owe { margin: 6px 0 14px; color: #d5e3ec; font-size: 0.98rem; }
+.taunt-owe b { color: #ffd66b; }
+.taunt-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+.taunt-actions .ghost { color: #fff; border-color: rgb(255 255 255 / 0.3); }
+.taunt-actions .primary { background: #ffd66b; color: #003858; }
+
+/* Alt i scenen animeres omkring sit eget midtpunkt */
+.taunt-scene g { transform-box: fill-box; }
+.taunt.playing .winner > .body { animation: cheer-jump 0.9s cubic-bezier(.4, 0, .6, 1) 2.2s infinite alternate; transform-origin: 50% 100%; }
+.taunt.playing .win-g.w1 .winner > .body { animation-delay: 2.65s; }
+@keyframes cheer-jump { from { transform: translateY(0) scaleY(1); } to { transform: translateY(-14px) scaleY(1.03); } }
+.taunt.playing .winner .arm-l { animation: wave-l 0.45s ease-in-out 2.2s infinite alternate; transform-origin: 100% 100%; }
+.taunt.playing .winner .arm-r { animation: wave-r 0.45s ease-in-out 2.4s infinite alternate; transform-origin: 0% 100%; }
+@keyframes wave-l { from { transform: rotate(-8deg); } to { transform: rotate(12deg); } }
+@keyframes wave-r { from { transform: rotate(8deg); } to { transform: rotate(-12deg); } }
+.taunt.playing .held-trophy { animation: trophy-shine 1.6s ease-in-out 2.6s infinite; transform-origin: 50% 100%; }
+@keyframes trophy-shine {
+  0%, 100% { transform: rotate(-6deg); filter: drop-shadow(0 0 0 rgb(255 214 107 / 0)); }
+  50% { transform: rotate(6deg); filter: drop-shadow(0 0 10px rgb(255 214 107 / 0.9)); }
+}
+.taunt.playing .crown-wrap .crown { transform-origin: 50% 100%; }
+.taunt.playing .spot { animation: sweep 4s ease-in-out infinite alternate; transform-origin: 50% 0%; }
+.taunt.playing .spot-r { animation-delay: -2s; }
+@keyframes sweep { from { transform: rotate(-7deg); } to { transform: rotate(7deg); } }
+
+.taunt.playing .loser > .body { animation: sulk 3.2s ease-in-out 2s infinite; transform-origin: 50% 100%; }
+@keyframes sulk { 0%, 100% { transform: rotate(-2deg) translateY(2px); } 50% { transform: rotate(2deg) translateY(4px); } }
+.taunt .loser .head { transform: rotate(10deg) translateY(4px); transform-origin: 50% 100%; }
+.taunt.playing .loser .head { animation: droop 3.2s ease-in-out 2s infinite; }
+@keyframes droop { 0%, 100% { transform: rotate(10deg) translateY(4px); } 50% { transform: rotate(16deg) translateY(6px); } }
+.taunt.playing .tear { animation: tear 1.6s ease-in 2.4s infinite; }
+@keyframes tear { 0% { transform: translateY(0); opacity: 0; } 20% { opacity: 1; } 100% { transform: translateY(14px); opacity: 0; } }
+.taunt.playing .drop { animation: rain 0.8s linear infinite; animation-delay: var(--d); }
+@keyframes rain { from { transform: translateY(0); opacity: 0.9; } to { transform: translateY(42px); opacity: 0; } }
+.taunt.playing .owed { animation: owed 2.4s ease-in-out 2.4s infinite; }
+@keyframes owed { 0%, 100% { transform: translate(-30px, -54px) rotate(-8deg); } 50% { transform: translate(-30px, -50px) rotate(-14deg); } }

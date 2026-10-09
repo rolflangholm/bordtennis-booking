@@ -13,6 +13,7 @@ Et lille bookingsystem til bordtennisrummet på kontoret. Slut med at stå og ve
 - **Scoreboard** med dag, uge, måned og alt: podie, stilling, kamphistorik og en fejring med konfetti, når et resultat gemmes
 - **Vi spiller om** hvid Monster og Arla Protein kakao. Hver taber giver en drik til en vinder (fx Rolf → Henrik: Monster, Bo → Dennis: Protein kakao), og hver drik har sit eget *Betalt*-kryds
 - **Bookeren og vinderne** kan indtaste og rette resultatet. Siden genkender dig på navnet under *Hvem er du?*
+- **Taber-animation**: når et resultat gemmes, får taberne (genkendt på navnet) vinderne at se på podiet med NSF-kongekroner og pokal, mens de selv står i regnvejr med den drik, de skylder
 - **Køleskabet** delt op pr. produkt: lager, hvem der skylder, "snart tomt"-varsel og log. Tæller automatisk ned, når en drik krydses af, og alle kan rette antallet efter påfyldning
 - **Dagens motivation**: et nyt motiverende citat hver dag, det samme for alle. Flere kan tilføjes i `public/quotes.js`
 - Virker på mobil og har dark mode

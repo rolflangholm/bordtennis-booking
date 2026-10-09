@@ -109,7 +109,7 @@ async function handleRest(req, res, url) {
           where.push(`${col}::text in (${marks.join(', ')})`);
         } else {
           params.push(m[2]);
-          where.push(`${col}::text ${OPS[m[1]]} $${params.length}`);
+          where.push(`${col} ${OPS[m[1]]} $${params.length}`);
         }
       }
       const sql = `select ${select} from public.${table[1]}${where.length ? ` where ${where.join(' and ')}` : ''}${order}${limit}`;

@@ -7,6 +7,7 @@ import {
   resultsByBookingIds, resultLine, renderPending, openResultDialog, loadScoreboard, scoreboardEvents,
 } from './scoreboard.js?v=dev';
 import { stagger } from './celebrate.js?v=dev';
+import { showTaunt } from './taunt.js?v=dev';
 
 const state = {
   config: null,
@@ -240,6 +241,7 @@ function freeUntil(slots, idx) {
 }
 
 async function loadDay() {
+  if (!state.date) return; // dagene er ikke klar endnu (fx under opstart)
   const today = isoDate(new Date());
   const [day, todaySlots] = await Promise.all([
     fetchDay(state.date),
@@ -391,6 +393,42 @@ function setView(view, { push = true } = {}) {
 function refreshAll() {
   loadDay().catch((err) => toast(err.message, true));
   if (state.view === 'score') loadScoreboard().catch((err) => toast(err.message, true));
+  checkTaunts();
+}
+
+// Taber-animationen: står dit navn på taberholdet i et nyt resultat (seneste døgn),
+// vises den én gang – med det samme, hvis siden er åben, ellers næste gang du kigger forbi.
+let tauntBusy = false;
+async function checkTaunts() {
+  if (tauntBusy || !state.name || !supabase) return;
+  tauntBusy = true;
+  try {
+    const me = state.name.toLowerCase();
+    const since = new Date(Date.now() - 864e5).toISOString();
+    const rows = unwrap(
+      await supabase.from('results').select('*').gte('created_at', since).order('created_at', { ascending: false }).limit(30),
+    );
+    const seen = storage.get('bt-tauntSeen', []);
+    const losersOf = (r) => (r.winner === 'A' ? r.team_b : r.team_a);
+    const mine = rows.filter((r) => !seen.includes(r.id) && losersOf(r).some((n) => n.toLowerCase() === me));
+    if (!mine.length) return;
+    storage.set('bt-tauntSeen', [...seen, ...mine.map((r) => r.id)].slice(-200));
+    const r = mine[0];
+    const debts = unwrap(await supabase.from('result_debts').select('*').eq('result_id', r.id).order('position'));
+    const score = r.score_a == null ? null : [Math.max(r.score_a, r.score_b), Math.min(r.score_a, r.score_b)];
+    const rematch = await showTaunt({
+      winners: r.winner === 'A' ? r.team_a : r.team_b,
+      losers: losersOf(r),
+      myName: state.name,
+      myDebts: debts.filter((d) => d.debtor.toLowerCase() === me),
+      score,
+    });
+    if (rematch) setView('booking');
+  } catch {
+    // Animationen er ren underholdning – fejler den, sker der ikke mere.
+  } finally {
+    tauntBusy = false;
+  }
 }
 
 function bindEvents() {
@@ -531,6 +569,7 @@ function tick() {
     renderQuote();
   }
   loadDay().catch((err) => toast(err.message, true));
+  checkTaunts(); // backup, hvis live-opdateringen har været afbrudt
 }
 
 function showSetupHelp() {
@@ -556,6 +595,7 @@ async function init() {
     myName: () => state.name,
   });
   await claimSeats();
+  checkTaunts();
   tick();
   connectLive();
   setView(location.hash === '#scoreboard' ? 'score' : 'booking', { push: false });
