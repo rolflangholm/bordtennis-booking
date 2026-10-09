@@ -166,8 +166,7 @@ export function showTaunt({ winners, losers, myName, myDebts = [], score }) {
       ${scene({ winners, losers, myName: me, myDrink })}
       <p class="taunt-owe">${owe ? `Du skylder ${owe}. Køleskabet venter 🧊` : 'Bedre held næste gang!'}</p>
       <div class="taunt-actions">
-        <button type="button" class="ghost taunt-ok">Det tager jeg… 😩</button>
-        <button type="button" class="primary taunt-rematch">Revanche! 🏓</button>
+        <button type="button" class="primary taunt-ok">Det tager jeg… 😩</button>
       </div>
     </div>`;
   document.body.append(root);
@@ -244,18 +243,17 @@ export function showTaunt({ winners, losers, myName, myDebts = [], score }) {
   }
 
   return new Promise((resolve) => {
-    const close = (rematch) => {
+    const close = () => {
       document.removeEventListener('keydown', onKey);
       const a = root.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 220, fill: 'forwards' });
       a.onfinish = () => {
         root.remove();
-        resolve(rematch);
+        resolve();
       };
     };
-    const onKey = (e) => e.key === 'Escape' && close(false);
+    const onKey = (e) => e.key === 'Escape' && close();
     document.addEventListener('keydown', onKey);
-    q('.taunt-ok').addEventListener('click', () => close(false));
-    q('.taunt-rematch').addEventListener('click', () => close(true));
-    q('.taunt-rematch').focus({ preventScroll: true });
+    q('.taunt-ok').addEventListener('click', close);
+    q('.taunt-ok').focus({ preventScroll: true });
   });
 }

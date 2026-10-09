@@ -416,14 +416,13 @@ async function checkTaunts() {
     const r = mine[0];
     const debts = unwrap(await supabase.from('result_debts').select('*').eq('result_id', r.id).order('position'));
     const score = r.score_a == null ? null : [Math.max(r.score_a, r.score_b), Math.min(r.score_a, r.score_b)];
-    const rematch = await showTaunt({
+    await showTaunt({
       winners: r.winner === 'A' ? r.team_a : r.team_b,
       losers: losersOf(r),
       myName: state.name,
       myDebts: debts.filter((d) => d.debtor.toLowerCase() === me),
       score,
     });
-    if (rematch) setView('booking');
   } catch {
     // Animationen er ren underholdning – fejler den, sker der ikke mere.
   } finally {
