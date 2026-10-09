@@ -10,6 +10,8 @@ Et lille bookingsystem til bordtennisrummet på kontoret. Slut med at stå og ve
 - **Fair brug**: hver person kan højst være med i 2 kommende kampe (kan ændres)
 - Kun den der bookede kan aflyse, og man kan kun fjerne sig selv
 - **Regler** på siden (knappen *Regler*), som bruger de aktuelle indstillinger og vises automatisk første gang
+- **Scoreboard** med dag, uge og alt: podie, stilling, hvem der skylder hvad, og en fejring med konfetti, når et resultat gemmes
+- **Vi spiller om** en hvid Monster eller en Arla Protein kakao. Kun den der bookede kan indtaste resultatet og sætte kryds ved *Betalt / taget fra køleskabet*
 - **Dagens motivation**: et nyt motiverende citat hver dag, det samme for alle. Flere kan tilføjes i `public/quotes.js`
 - Virker på mobil og har dark mode
 
@@ -64,7 +66,7 @@ Indstillingerne ligger i databasen. Ret dem i Supabase under **Table Editor → 
 
 Skifter I `slot_minutes` eller `open_time`, bør eksisterende fremtidige bookinger passe til det nye tidsgitter. Ellers vises de ikke.
 
-**Slet eller ret en booking som admin:** Supabase → **Table Editor → bookings**.
+**Slet eller ret en booking som admin:** Supabase → **Table Editor → bookings** (resultater ligger i **results**).
 
 ---
 
@@ -84,6 +86,7 @@ Kræver [Node.js](https://nodejs.org) 18+.
 ```bash
 npm install
 npm run demo   # kører hele appen lokalt med en indbygget database. Ingen Supabase-konto nødvendig.
+               # DEMO_NOW="2026-10-09 10:25" npm run demo lader databasen tro, at klokken er noget andet.
 npm test       # tester databasereglerne i schema.sql mod en rigtig Postgres (PGlite)
 ```
 

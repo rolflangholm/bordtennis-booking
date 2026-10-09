@@ -1,30 +1,12 @@
-import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
+import {
+  $, $$, esc, isoDate, nowHHMM, hhmm, toMinutes, fromMinutes, storage, tokens, appConfig,
+  supabase, unwrap, rpc, toast,
+} from './core.js?v=dev';
 import { quoteOfTheDay } from './quotes.js?v=dev';
-
-const $ = (sel) => document.querySelector(sel);
-const esc = (s) =>
-  String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
-const pad = (n) => String(n).padStart(2, '0');
-const isoDate = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-const nowHHMM = () => {
-  const d = new Date();
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-};
-
-const storage = {
-  get(key, fallback) {
-    try {
-      return JSON.parse(localStorage.getItem(key)) ?? fallback;
-    } catch {
-      return fallback;
-    }
-  },
-  set(key, value) {
-    try {
-      localStorage.setItem(key, JSON.stringify(value));
-    } catch {}
-  },
-};
+import {
+  resultsByBookingIds, resultLine, renderPending, openResultDialog, loadScoreboard, scoreboardEvents,
+} from './scoreboard.js?v=dev';
+import { stagger } from './celebrate.js?v=dev';
 
 const state = {
   config: null,
@@ -33,23 +15,12 @@ const state = {
   date: null,
   slots: [],
   todaySlots: [],
+  results: new Map(), // bookingId → resultat for den viste dag
+  view: 'booking',
   name: storage.get('bt-name', ''),
-  tokens: storage.get('bt-tokens', {}), // { [bookingId]: { owner, seats: { [i]: token } } }
 };
 
-// ───── Data (Supabase) ─────
-const appConfig = window.BORDTENNIS_CONFIG || {};
-const supabase =
-  appConfig.supabaseUrl && appConfig.supabaseKey ? createClient(appConfig.supabaseUrl, appConfig.supabaseKey) : null;
-
-const hhmm = (t) => t.slice(0, 5);
-const toMinutes = (t) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
-const fromMinutes = (m) => `${pad(Math.floor(m / 60))}:${pad(m % 60)}`;
-
-function unwrap({ data, error }) {
-  if (error) throw new Error(error.message || 'Kunne ikke kontakte databasen');
-  return data;
-}
+// ───── Data ─────
 
 async function loadSettings() {
   const s = unwrap(await supabase.from('settings').select('*').eq('id', 1).single());
@@ -72,14 +43,15 @@ async function fetchDay(date) {
   const byStart = new Map(rows.map((b) => [hhmm(b.start), b]));
   const { openTime, closeTime, slotMinutes } = state.config;
   const now = new Date();
+  const [y, m, d] = date.split('-').map(Number);
   const slots = [];
   for (let t = toMinutes(openTime); t + slotMinutes <= toMinutes(closeTime); t += slotMinutes) {
     const start = fromMinutes(t);
-    const [y, m, d] = date.split('-').map(Number);
     const b = byStart.get(start);
     slots.push({
       start,
       end: fromMinutes(t + slotMinutes),
+      started: new Date(y, m - 1, d, 0, t) <= now,
       past: new Date(y, m - 1, d, 0, t + slotMinutes) <= now,
       booking: b ? { ...b, start: hhmm(b.start) } : null,
     });
@@ -87,28 +59,20 @@ async function fetchDay(date) {
   return slots;
 }
 
-const rpc = async (fn, args) => unwrap(await supabase.rpc(fn, args));
-
-function toast(msg, isError = false) {
-  const el = $('#toast');
-  el.textContent = msg;
-  el.className = `toast show${isError ? ' error' : ''}`;
-  clearTimeout(toast.t);
-  toast.t = setTimeout(() => (el.className = 'toast'), 3200);
-}
-
 function saveTokens(id, patch) {
-  const cur = state.tokens[id] || { seats: {} };
-  state.tokens[id] = { ...cur, ...patch, seats: { ...cur.seats, ...(patch.seats || {}) } };
-  storage.set('bt-tokens', state.tokens);
+  const cur = tokens.bookings[id] || { seats: {} };
+  tokens.bookings[id] = { ...cur, ...patch, seats: { ...cur.seats, ...(patch.seats || {}) } };
+  tokens.save();
 }
 
 function forgetSeat(id, seat) {
-  const t = state.tokens[id];
+  const t = tokens.bookings[id];
   if (!t) return;
   delete t.seats[seat];
-  storage.set('bt-tokens', state.tokens);
+  tokens.save();
 }
+
+// ───── Dage ─────
 
 function buildDays() {
   const days = [];
@@ -141,10 +105,16 @@ function renderDays() {
     .join('');
 }
 
-function isMine(booking, seat) {
-  return Boolean(state.tokens[booking.id]?.seats?.[seat]);
+// Den første bookbare dag efter i dag.
+function nextOpenDay() {
+  const today = isoDate(new Date());
+  return state.days.find((d) => isoDate(d) > today) || null;
 }
-const isOwner = (booking) => Boolean(state.tokens[booking.id]?.owner);
+
+// ───── Tider ─────
+
+const isMine = (booking, seat) => Boolean(tokens.bookings[booking.id]?.seats?.[seat]);
+const isOwner = (booking) => Boolean(tokens.ownerOf(booking.id));
 
 function seatHtml(booking, i, past) {
   const name = booking.seats[i];
@@ -164,6 +134,8 @@ function seatHtml(booking, i, past) {
 function isNow(slot) {
   return state.date === isoDate(new Date()) && slot.start <= nowHHMM() && nowHHMM() < slot.end;
 }
+
+const hasTeams = (b) => b.seats.slice(0, 2).some(Boolean) && b.seats.slice(2).some(Boolean);
 
 function renderSlots() {
   const hidePast = $('#hidePast').checked;
@@ -194,21 +166,29 @@ function renderSlots() {
           <div class="side">${now ? '<span class="tag nowtag">Nu</span>' : ''}${action}</div></li>`;
       }
 
+      const result = state.results.get(b.id);
       const missing = b.seats.filter((s) => !s).length;
       const tag = now
         ? '<span class="tag nowtag">Spiller nu</span>'
         : missing && !slot.past
           ? `<span class="tag open">Mangler ${missing}</span>`
-          : '<span class="tag busy">Booket</span>';
-      const cancel =
-        isOwner(b) && !slot.past ? `<button type="button" class="link" data-cancel="${b.id}">Aflys</button>` : '';
+          : result
+            ? '<span class="tag done">Spillet</span>'
+            : '<span class="tag busy">Booket</span>';
+      const owner = isOwner(b);
+      const cancel = owner && !slot.started ? `<button type="button" class="link" data-cancel="${b.id}">Aflys</button>` : '';
+      const resultBtn =
+        owner && slot.started && hasTeams(b)
+          ? `<button type="button" class="${result ? 'link' : 'primary small'}" data-result-slot="${slot.start}">${result ? 'Ret resultat' : '🏆 Resultat'}</button>`
+          : '';
       return `<li class="${cls}">${time}
         <div class="match">
           <div class="team">${seatHtml(b, 0, slot.past)}${seatHtml(b, 1, slot.past)}</div>
           <span class="vs">VS</span>
           <div class="team">${seatHtml(b, 2, slot.past)}${seatHtml(b, 3, slot.past)}</div>
+          ${result ? resultLine(result) : ''}
         </div>
-        <div class="side">${tag}${cancel}</div></li>`;
+        <div class="side">${tag}${resultBtn}${cancel}</div></li>`;
     })
     .join('');
 }
@@ -224,7 +204,8 @@ function renderStatus() {
   let html;
   let cls = 'status';
   const next = nextOpenDay();
-  const nextName = next && (dayLabel(next) === 'I morgen' ? 'i morgen' : next.toLocaleDateString('da-DK', { weekday: 'long' }));
+  const nextName =
+    next && (dayLabel(next) === 'I morgen' ? 'i morgen' : next.toLocaleDateString('da-DK', { weekday: 'long' }));
   const nextLabel = next ? `${nextName} kl. ${openTime}` : '';
   if (!isTodayOpenDay || !slots.length) {
     html = `<div><p class="big"><span class="dot"></span>Lukket i dag</p><p class="small">${next ? `Åbner igen ${nextLabel}.` : ''} Du kan allerede booke nu.</p></div>`;
@@ -242,19 +223,13 @@ function renderStatus() {
     let j = idx;
     while (j < slots.length && slots[j].booking) j++;
     const players = slots[idx].booking.seats.filter(Boolean).map(esc).join(', ');
-    const next = slots[j];
-    html = `<div><p class="big"><span class="dot"></span>Optaget${next ? ` · ledigt kl. ${next.start}` : ' resten af dagen'}</p>
+    const nextFree = slots[j];
+    html = `<div><p class="big"><span class="dot"></span>Optaget${nextFree ? ` · ledigt kl. ${nextFree.start}` : ' resten af dagen'}</p>
       <p class="small">Spiller nu: ${players}</p></div>
-      ${next ? `<button type="button" class="primary" data-book-today="${next.start}">Book ${next.start}</button>` : ''}`;
+      ${nextFree ? `<button type="button" class="primary" data-book-today="${nextFree.start}">Book ${nextFree.start}</button>` : ''}`;
   }
   el.className = cls;
   el.innerHTML = html;
-}
-
-// Den første bookbare dag efter i dag.
-function nextOpenDay() {
-  const today = isoDate(new Date());
-  return state.days.find((d) => isoDate(d) > today) || null;
 }
 
 function freeUntil(slots, idx) {
@@ -271,9 +246,16 @@ async function loadDay() {
   ]);
   state.slots = day;
   state.todaySlots = todaySlots || day;
+  // Resultater er "pænt at have": fejler de, virker bookingen stadig.
+  state.results = await resultsByBookingIds(day.filter((s) => s.booking).map((s) => s.booking.id)).catch(
+    () => new Map(),
+  );
   renderSlots();
   renderStatus();
+  renderPending($('#pending')).catch(() => {});
 }
+
+// ───── Navn, booking, tilmelding ─────
 
 function renderWho() {
   $('#who').textContent = state.name ? `👋 ${state.name}` : 'Hvem er du?';
@@ -346,7 +328,7 @@ async function join(id, seat) {
 }
 
 async function leave(id, seat) {
-  const t = state.tokens[id] || {};
+  const t = tokens.bookings[id] || {};
   try {
     await rpc('leave_seat', { p_id: id, p_seat: seat, p_token: t.seats?.[seat] || t.owner || null });
     forgetSeat(id, seat);
@@ -360,9 +342,9 @@ async function leave(id, seat) {
 async function cancel(id) {
   if (!confirm('Aflys hele bookingen?')) return;
   try {
-    await rpc('cancel_booking', { p_id: id, p_token: state.tokens[id]?.owner || null });
-    delete state.tokens[id];
-    storage.set('bt-tokens', state.tokens);
+    await rpc('cancel_booking', { p_id: id, p_token: tokens.ownerOf(id) });
+    delete tokens.bookings[id];
+    tokens.save();
     toast('Bookingen er aflyst – bordet er ledigt igen');
   } catch (err) {
     toast(err.message, true);
@@ -370,8 +352,37 @@ async function cancel(id) {
   loadDay();
 }
 
+function resultFor(booking) {
+  openResultDialog({
+    bookingId: booking.id,
+    date: booking.date,
+    start: booking.start,
+    teamA: booking.seats.slice(0, 2).filter(Boolean),
+    teamB: booking.seats.slice(2).filter(Boolean),
+    result: state.results.get(booking.id) || null,
+  });
+}
+
+// ───── Visninger ─────
+
+function setView(view, { push = true } = {}) {
+  state.view = view;
+  $('#viewBooking').hidden = view !== 'booking';
+  $('#viewScore').hidden = view !== 'score';
+  $$('#viewTabs button').forEach((b) => b.setAttribute('aria-selected', b.dataset.view === view));
+  if (push) history.replaceState(null, '', view === 'score' ? '#scoreboard' : location.pathname + location.search);
+  const panel = view === 'score' ? $('#viewScore') : $('#viewBooking');
+  stagger([...panel.children].slice(0, 4), { gap: 50, y: 10 });
+  if (view === 'score') loadScoreboard().catch((err) => toast(err.message, true));
+}
+
+function refreshAll() {
+  loadDay().catch((err) => toast(err.message, true));
+  if (state.view === 'score') loadScoreboard().catch((err) => toast(err.message, true));
+}
+
 function bindEvents() {
-  document.addEventListener('click', (e) => {
+  document.addEventListener('click', async (e) => {
     const el = e.target.closest('button');
     if (!el) return;
     const d = el.dataset;
@@ -379,12 +390,19 @@ function bindEvents() {
       state.date = d.date;
       renderDays();
       loadDay();
-    } else if (d.book) openBooking(state.date, d.book);
+    } else if (d.view) setView(d.view);
+    else if (d.book) openBooking(state.date, d.book);
     else if (d.bookToday) openBooking(isoDate(new Date()), d.bookToday);
     else if (d.join) join(d.join, Number(d.seat));
     else if (d.leave) leave(d.leave, Number(d.seat));
     else if (d.cancel) cancel(d.cancel);
-    else if ('rules' in d) $('#rulesDialog').showModal();
+    else if (d.resultSlot) {
+      const slot = state.slots.find((s) => s.start === d.resultSlot);
+      if (slot?.booking) resultFor(slot.booking);
+    } else if (d.resultBooking) {
+      const b = $('#pending')._pending?.find((x) => x.id === d.resultBooking);
+      if (b) resultFor(b);
+    } else if ('rules' in d) $('#rulesDialog').showModal();
     else if ('close' in d) el.closest('dialog').close();
   });
   $('#who').addEventListener('click', askName);
@@ -393,19 +411,24 @@ function bindEvents() {
     storage.set('bt-hidePast', e.target.checked);
     renderSlots();
   });
+  window.addEventListener('hashchange', () => setView(location.hash === '#scoreboard' ? 'score' : 'booking', { push: false }));
 }
 
 function connectLive() {
   if (appConfig.realtime === false) return;
   let timer;
+  const later = () => {
+    clearTimeout(timer); // saml flere ændringer i ét kald
+    timer = setTimeout(refreshAll, 150);
+  };
   supabase
-    .channel('bookings')
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'bookings' }, () => {
-      clearTimeout(timer); // saml flere ændringer i ét kald
-      timer = setTimeout(loadDay, 150);
-    })
+    .channel('bordtennis')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'bookings' }, later)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'results' }, later)
     .subscribe();
 }
+
+// ───── Regler og dagens citat ─────
 
 function renderRules() {
   const { slotMinutes, bufferMinutes, openTime, closeTime, daysAhead, maxActivePerPerson, weekends } = state.config;
@@ -431,9 +454,18 @@ function renderRules() {
       'Navne',
       [
         'Brug dit rigtige fornavn, gerne med forbogstav i efternavnet (fx "Rolf L."), så alle kan se, hvem der spiller.',
-        `Brug altid det <b>samme navn</b>.${maxActivePerPerson ? ` Grænsen på ${maxActivePerPerson} kampe tælles pr. navn.` : ''} Det er ligegyldigt, om du skriver med store eller små bogstaver.`,
+        `Brug altid det <b>samme navn</b>.${maxActivePerPerson ? ` Grænsen på ${maxActivePerPerson} kampe tælles pr. navn.` : ''} Scoreboardet samler også dine sejre under dit navn. Det er ligegyldigt, om du skriver med store eller små bogstaver.`,
         'Den samme person kan ikke stå på to pladser i den samme kamp.',
         'Navne må højst være 40 tegn.',
+      ],
+    ],
+    [
+      'Scoreboard',
+      [
+        'Vi spiller om en <b>hvid Monster</b> eller en <b>Arla Protein kakao</b>. Taberne giver, som standard én til hver vinder.',
+        'Kun <b>den der bookede bordet</b> kan indtaste, rette og slette resultatet, og kun fra den samme browser.',
+        'Resultatet kan indtastes, så snart kampen er gået i gang.',
+        'Når drikkene er betalt eller taget fra køleskabet, sætter bookeren kryds i <b>Betalt</b>.',
       ],
     ],
     [
@@ -497,13 +529,15 @@ async function init() {
   if (!supabase) return showSetupHelp();
   state.config = await loadSettings();
   document.title = state.config.title;
-  $('#title').textContent = state.config.title;
+  $('#title').textContent = state.config.title.replace(/\s*booking$/i, '');
   $('#hidePast').checked = storage.get('bt-hidePast', true);
   renderRules();
   renderWho();
   bindEvents();
+  scoreboardEvents({ onChange: refreshAll, weekends: state.config.weekends });
   tick();
   connectLive();
+  setView(location.hash === '#scoreboard' ? 'score' : 'booking', { push: false });
   // Opdatér "nu"-markering og status hvert halve minut (og som backup for live-opdatering).
   setInterval(tick, 30_000);
   document.addEventListener('visibilitychange', () => !document.hidden && tick());
@@ -515,3 +549,4 @@ async function init() {
 }
 
 init().catch((err) => toast(err.message, true));
+

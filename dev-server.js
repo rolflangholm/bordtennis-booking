@@ -18,18 +18,27 @@ const MIME = {
   '.svg': 'image/svg+xml',
 };
 
-const TABLES = new Set(['settings', 'bookings']);
-const FUNCTIONS = new Set(['book_slot', 'join_seat', 'leave_seat', 'cancel_booking']);
+const TABLES = new Set(['settings', 'bookings', 'results']);
+const FUNCTIONS = new Set([
+  'book_slot', 'join_seat', 'leave_seat', 'cancel_booking', 'save_result', 'set_result_paid', 'delete_result',
+]);
 let db;
 
 async function startDemoDb() {
   const { PGlite } = require('@electric-sql/pglite');
-  db = new PGlite(process.env.DEMO_DB || path.join(__dirname, 'data', 'demo-db'));
+  // Datoer sendes som "YYYY-MM-DD" ligesom hos Supabase (ikke som JS Date).
+  db = new PGlite(process.env.DEMO_DB || path.join(__dirname, 'data', 'demo-db'), { parsers: { 1082: (v) => v } });
   await db.exec(`do $$ begin
     if not exists (select 1 from pg_roles where rolname = 'anon') then create role anon nologin; end if;
     if not exists (select 1 from pg_roles where rolname = 'authenticated') then create role authenticated nologin; end if;
   end $$;`);
   await db.exec(fs.readFileSync(path.join(__dirname, 'supabase', 'schema.sql'), 'utf8'));
+  // DEMO_NOW="2026-10-09 10:05" lader databasen tro, at klokken er noget andet (til test).
+  if (process.env.DEMO_NOW) {
+    await db.query(
+      `create or replace function public._bt_now() returns timestamp language sql stable as $$ select '${process.env.DEMO_NOW.replace(/'/g, '')}'::timestamp $$`,
+    );
+  }
   await db.exec('set role anon'); // samme rettigheder som en browser har hos Supabase
 }
 
@@ -69,13 +78,35 @@ async function handleRest(req, res, url) {
       if (!/^(\*|\w+(,\w+)*)$/.test(select)) return send(res, 400, { message: 'Ugyldig select' });
       const where = [];
       const params = [];
+      let order = '';
+      let limit = '';
+      const OPS = { eq: '=', gte: '>=', lte: '<=', gt: '>', lt: '<' };
       for (const [col, val] of url.searchParams) {
         if (col === 'select') continue;
-        if (!/^\w+$/.test(col) || !val.startsWith('eq.')) return send(res, 400, { message: 'Ukendt filter' });
-        params.push(val.slice(3));
-        where.push(`${col} = $${params.length}`);
+        if (col === 'order') {
+          const parts = val.split(',').map((p) => p.split('.'));
+          if (!parts.every(([c, dir]) => /^\w+$/.test(c) && (!dir || /^(asc|desc)$/.test(dir)))) {
+            return send(res, 400, { message: 'Ugyldig order' });
+          }
+          order = ` order by ${parts.map(([c, dir]) => `${c} ${dir || 'asc'}`).join(', ')}`;
+          continue;
+        }
+        if (col === 'limit') {
+          limit = ` limit ${Math.min(Number(val) || 100, 1000)}`;
+          continue;
+        }
+        const m = val.match(/^(eq|gte|lte|gt|lt|in)\.(.*)$/s);
+        if (!/^\w+$/.test(col) || !m) return send(res, 400, { message: 'Ukendt filter' });
+        if (m[1] === 'in') {
+          const items = m[2].replace(/^\(|\)$/g, '').split(',').map((x) => x.replace(/^"|"$/g, ''));
+          const marks = items.map((x) => (params.push(x), `$${params.length}`));
+          where.push(`${col}::text in (${marks.join(', ')})`);
+        } else {
+          params.push(m[2]);
+          where.push(`${col}::text ${OPS[m[1]]} $${params.length}`);
+        }
       }
-      const sql = `select ${select} from public.${table[1]}${where.length ? ` where ${where.join(' and ')}` : ''}`;
+      const sql = `select ${select} from public.${table[1]}${where.length ? ` where ${where.join(' and ')}` : ''}${order}${limit}`;
       const { rows } = await db.query(sql, params);
       const single = (req.headers.accept || '').includes('vnd.pgrst.object');
       return send(res, 200, single ? rows[0] : rows);

@@ -247,30 +247,157 @@ begin
   return json_build_object('ok', true);
 end $$;
 
+-- ───────────────────────────── Scoreboard ─────────────────────────────
+-- Resultater gemmes for sig selv (med en kopi af holdene), så de overlever, selv om
+-- bookingen senere ryddes op eller aflyses. Kun bookerens token kan rette i dem.
+
+create table if not exists public.results (
+  id uuid primary key default gen_random_uuid(),
+  booking_id uuid unique references public.bookings (id) on delete set null,
+  date date not null,
+  start time not null,
+  team_a text[] not null,
+  team_b text[] not null,
+  winner text not null check (winner in ('A', 'B')),
+  score_a int check (score_a between 0 and 99),
+  score_b int check (score_b between 0 and 99),
+  stake text not null check (stake in ('monster', 'arla')), -- hvid Monster eller Arla Protein kakao
+  stake_count int not null default 2 check (stake_count between 1 and 8),
+  paid boolean not null default false, -- betalt / taget fra køleskabet
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists results_date_idx on public.results (date);
+
+create table if not exists public.result_secrets (
+  result_id uuid primary key references public.results (id) on delete cascade,
+  owner_token text not null
+);
+
+alter table public.results enable row level security;
+alter table public.result_secrets enable row level security;
+drop policy if exists "alle kan læse resultater" on public.results;
+create policy "alle kan læse resultater" on public.results for select using (true);
+
+create or replace function public._bt_result_public(r public.results)
+returns json language sql stable
+as $$
+  select json_build_object(
+    'id', r.id, 'booking_id', r.booking_id, 'date', r.date, 'start', to_char(r.start, 'HH24:MI'),
+    'team_a', to_json(r.team_a), 'team_b', to_json(r.team_b), 'winner', r.winner,
+    'score_a', r.score_a, 'score_b', r.score_b, 'stake', r.stake, 'stake_count', r.stake_count,
+    'paid', r.paid
+  )
+$$;
+
+-- Gem eller ret resultatet for en booking. Kun bookeren, og først når kampen er gået i gang.
+create or replace function public.save_result(
+  p_booking_id uuid, p_token text, p_winner text, p_stake text,
+  p_score_a int default null, p_score_b int default null, p_stake_count int default 2
+)
+returns json language plpgsql security definer
+set search_path = public
+as $$
+declare
+  b bookings;
+  r results;
+  v_a text[];
+  v_b text[];
+begin
+  perform pg_advisory_xact_lock(hashtext('bordtennis-booking'));
+  select * into b from bookings where id = p_booking_id;
+  if not found then raise exception 'Bookingen findes ikke'; end if;
+  if not exists (select 1 from booking_secrets where booking_id = b.id and owner_token = p_token) then
+    raise exception 'Kun den der bookede bordet kan indtaste resultatet';
+  end if;
+  if b.date + b.start > _bt_now() then raise exception 'Kampen er ikke gået i gang endnu'; end if;
+
+  v_a := array_remove(b.seats[1:2], null);
+  v_b := array_remove(b.seats[3:4], null);
+  if cardinality(v_a) = 0 or cardinality(v_b) = 0 then
+    raise exception 'Begge hold skal have mindst én spiller';
+  end if;
+  if p_winner is null or p_winner not in ('A', 'B') then raise exception 'Vælg hvem der vandt'; end if;
+  if p_stake is null or p_stake not in ('monster', 'arla') then raise exception 'Vælg hvad I spillede om'; end if;
+  if p_stake_count is null or p_stake_count not between 1 and 8 then raise exception 'Antal skal være mellem 1 og 8'; end if;
+  if (p_score_a is null) <> (p_score_b is null) then raise exception 'Udfyld begge scorer eller ingen'; end if;
+  if p_score_a is not null and (p_score_a not between 0 and 99 or p_score_b not between 0 and 99) then
+    raise exception 'Scoren skal være mellem 0 og 99';
+  end if;
+  if p_score_a is not null and (
+       (p_winner = 'A' and p_score_a <= p_score_b) or (p_winner = 'B' and p_score_b <= p_score_a)) then
+    raise exception 'Scoren passer ikke med vinderen';
+  end if;
+
+  insert into results (booking_id, date, start, team_a, team_b, winner, score_a, score_b, stake, stake_count)
+  values (b.id, b.date, b.start, v_a, v_b, p_winner, p_score_a, p_score_b, p_stake, p_stake_count)
+  on conflict (booking_id) do update set
+    team_a = excluded.team_a, team_b = excluded.team_b, winner = excluded.winner,
+    score_a = excluded.score_a, score_b = excluded.score_b, stake = excluded.stake,
+    stake_count = excluded.stake_count, updated_at = now()
+  returning * into r;
+  insert into result_secrets values (r.id, p_token) on conflict (result_id) do nothing;
+  return _bt_result_public(r);
+end $$;
+
+-- Sæt kryds ved "betalt / taget fra køleskabet". Kun bookeren.
+create or replace function public.set_result_paid(p_result_id uuid, p_token text, p_paid boolean)
+returns json language plpgsql security definer
+set search_path = public
+as $$
+declare
+  r results;
+begin
+  if not exists (select 1 from result_secrets where result_id = p_result_id and owner_token = p_token) then
+    raise exception 'Kun den der bookede bordet kan krydse af';
+  end if;
+  update results set paid = coalesce(p_paid, false), updated_at = now() where id = p_result_id returning * into r;
+  return _bt_result_public(r);
+end $$;
+
+-- Slet et resultat. Kun bookeren.
+create or replace function public.delete_result(p_result_id uuid, p_token text)
+returns json language plpgsql security definer
+set search_path = public
+as $$
+begin
+  if not exists (select 1 from result_secrets where result_id = p_result_id and owner_token = p_token) then
+    raise exception 'Kun den der bookede bordet kan slette resultatet';
+  end if;
+  delete from results where id = p_result_id;
+  return json_build_object('ok', true);
+end $$;
+
 -- ───────────────────────────── Rettigheder ─────────────────────────────
 
-revoke all on public.booking_secrets from public;
-revoke insert, update, delete on public.bookings, public.settings from public;
+revoke all on public.booking_secrets, public.result_secrets from public;
+revoke insert, update, delete on public.bookings, public.settings, public.results from public;
 revoke execute on all functions in schema public from public;
 grant execute on function
   public.book_slot(date, time, text, text[]),
   public.join_seat(uuid, int, text),
   public.leave_seat(uuid, int, text),
-  public.cancel_booking(uuid, text)
+  public.cancel_booking(uuid, text),
+  public.save_result(uuid, text, text, text, int, int, int),
+  public.set_result_paid(uuid, text, boolean),
+  public.delete_result(uuid, text)
 to public;
 
 do $$
 begin
   if exists (select 1 from pg_roles where rolname = 'anon') then
-    revoke all on public.booking_secrets from anon, authenticated;
-    revoke insert, update, delete, truncate on public.bookings, public.settings from anon, authenticated;
-    grant select on public.bookings, public.settings to anon, authenticated;
+    revoke all on public.booking_secrets, public.result_secrets from anon, authenticated;
+    revoke insert, update, delete, truncate on public.bookings, public.settings, public.results from anon, authenticated;
+    grant select on public.bookings, public.settings, public.results to anon, authenticated;
     revoke execute on all functions in schema public from anon, authenticated;
     grant execute on function
       public.book_slot(date, time, text, text[]),
       public.join_seat(uuid, int, text),
       public.leave_seat(uuid, int, text),
-      public.cancel_booking(uuid, text)
+      public.cancel_booking(uuid, text),
+      public.save_result(uuid, text, text, text, int, int, int),
+      public.set_result_paid(uuid, text, boolean),
+      public.delete_result(uuid, text)
     to anon, authenticated;
   end if;
 end $$;
@@ -278,12 +405,17 @@ end $$;
 -- ───────────────────────────── Live-opdatering ─────────────────────────────
 
 do $$
+declare
+  t text;
 begin
-  if exists (select 1 from pg_publication where pubname = 'supabase_realtime')
-     and not exists (
-       select 1 from pg_publication_tables
-       where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'bookings'
-     ) then
-    alter publication supabase_realtime add table public.bookings;
+  if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
+    foreach t in array array['bookings', 'results'] loop
+      if not exists (
+        select 1 from pg_publication_tables
+        where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t
+      ) then
+        execute format('alter publication supabase_realtime add table public.%I', t);
+      end if;
+    end loop;
   end if;
 end $$;

@@ -4,42 +4,90 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Bordtennis booking</title>
-  <meta name="theme-color" content="#0f5c4a">
+  <meta name="theme-color" content="#003858">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="preload" href="brand/fonts/plus-jakarta-sans-700.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="style.css?v=dev">
 </head>
 <body>
   <header class="topbar">
-    <div class="brand">
-      <img src="icon.svg" alt="" width="32" height="32">
-      <h1 id="title">Bordtennis booking</h1>
+    <div class="topbar-inner">
+      <a class="brand" href="./" aria-label="Forside">
+        <img class="brand-logo" src="brand/nsf-logo-white.svg" alt="Nordic Sales Force" width="96" height="30">
+        <span class="brand-sep" aria-hidden="true"></span>
+        <span class="brand-app"><span class="ball" aria-hidden="true"></span><span id="title">Bordtennis</span></span>
+      </a>
+      <div class="topactions">
+        <button id="rulesBtn" class="chip" type="button">Regler</button>
+        <button id="who" class="chip" type="button" title="Skift navn">Hvem er du?</button>
+      </div>
     </div>
-    <div class="topactions">
-      <button id="rulesBtn" class="chip" type="button">Regler</button>
-      <button id="who" class="chip" type="button" title="Skift navn">Hvem er du?</button>
-    </div>
+    <nav id="viewTabs" class="viewtabs" role="tablist" aria-label="Visning">
+      <button type="button" role="tab" data-view="booking" aria-selected="true">📅 Booking</button>
+      <button type="button" role="tab" data-view="score" aria-selected="false">🏆 Scoreboard</button>
+    </nav>
   </header>
 
   <main>
-    <section id="status" class="status" aria-live="polite"></section>
+    <!-- ───── Booking ───── -->
+    <div id="viewBooking">
+      <section id="status" class="status" aria-live="polite"></section>
 
-    <figure class="quote" aria-label="Dagens motivation">
-      <span class="quote-label">💪 Dagens motivation</span>
-      <blockquote id="quote"></blockquote>
-      <figcaption id="quoteAuthor"></figcaption>
-    </figure>
+      <section id="pending" class="pending" hidden></section>
 
-    <nav id="days" class="days" aria-label="Vælg dag"></nav>
+      <figure class="quote" aria-label="Dagens motivation">
+        <span class="quote-label">💪 Dagens motivation</span>
+        <blockquote id="quote"></blockquote>
+        <figcaption id="quoteAuthor"></figcaption>
+      </figure>
 
-    <div class="listhead">
-      <h2 id="dayTitle"></h2>
-      <label class="toggle"><input id="hidePast" type="checkbox" checked> Skjul passerede</label>
+      <nav id="days" class="days" aria-label="Vælg dag"></nav>
+
+      <div class="listhead">
+        <h2 id="dayTitle"></h2>
+        <label class="toggle"><input id="hidePast" type="checkbox" checked> Skjul passerede</label>
+      </div>
+
+      <ol id="slots" class="slots"></ol>
+      <p class="foot"><span id="rulesSummary"></span> · <button type="button" class="linkbtn" data-rules>Se alle regler</button></p>
     </div>
 
-    <ol id="slots" class="slots"></ol>
-    <p class="foot"><span id="rulesSummary"></span> · <button type="button" class="linkbtn" data-rules>Se alle regler</button></p>
+    <!-- ───── Scoreboard ───── -->
+    <div id="viewScore" hidden>
+      <div class="sb-head">
+        <h2>Scoreboard</h2>
+        <div id="scoreTabs" class="seg" role="tablist" aria-label="Periode">
+          <button type="button" role="tab" data-mode="day">Dag</button>
+          <button type="button" role="tab" data-mode="week">Uge</button>
+          <button type="button" role="tab" data-mode="all">Alt</button>
+        </div>
+      </div>
+
+      <div id="periodNav" class="period-nav">
+        <button id="periodPrev" type="button" class="icon-btn" aria-label="Forrige">‹</button>
+        <button id="periodLabel" type="button" class="period-label" title="Gå til i dag"></button>
+        <button id="periodNext" type="button" class="icon-btn" aria-label="Næste">›</button>
+      </div>
+
+      <div id="scoreStats" class="stats"></div>
+      <div id="scoreBody"></div>
+
+      <section class="card fridge-card">
+        <div class="card-head">
+          <h3>🧊 Køleskabet <span>mangler at blive betalt</span></h3>
+          <span id="fridgeCount" class="pill"></span>
+        </div>
+        <div id="fridge"></div>
+      </section>
+
+      <section class="card">
+        <div class="card-head"><h3 id="historyTitle">Kampe i perioden</h3></div>
+        <div id="history"></div>
+      </section>
+    </div>
   </main>
 
+  <!-- ───── Dialoger ───── -->
   <dialog id="bookDialog">
     <form id="bookForm" method="dialog">
       <h3>Book <span id="bookWhen"></span></h3>
@@ -60,6 +108,54 @@
       <div class="actions">
         <button type="button" class="ghost" data-close>Annullér</button>
         <button type="submit" class="primary">Book bordet</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="resultDialog" class="result-dlg">
+    <form id="resultForm" method="dialog">
+      <p class="dlg-kicker" id="resultWhen"></p>
+      <h3>Hvem vandt?</h3>
+      <div class="pick-teams">
+        <button id="pickA" type="button" class="team-pick" aria-pressed="false"></button>
+        <span class="vs">VS</span>
+        <button id="pickB" type="button" class="team-pick" aria-pressed="false"></button>
+      </div>
+
+      <div class="score-row">
+        <label for="scoreA">Score <span class="muted">(valgfri)</span></label>
+        <div class="score-inputs">
+          <input id="scoreA" name="sa" type="number" inputmode="numeric" min="0" max="99" placeholder="A" aria-label="Score hold A">
+          <span>–</span>
+          <input name="sb" type="number" inputmode="numeric" min="0" max="99" placeholder="B" aria-label="Score hold B">
+        </div>
+      </div>
+
+      <h4>Hvad blev der spillet om?</h4>
+      <div class="stakes">
+        <button id="stakeMonster" type="button" class="stake-pick" aria-pressed="true">
+          <span class="stake-art"></span><b>Hvid Monster</b>
+        </button>
+        <button id="stakeArla" type="button" class="stake-pick" aria-pressed="false">
+          <span class="stake-art"></span><b>Arla Protein kakao</b>
+        </button>
+      </div>
+
+      <div class="count-row">
+        <span>Antal</span>
+        <div class="stepper">
+          <button id="countMinus" type="button" aria-label="Færre">−</button>
+          <output id="stakeCount">2</output>
+          <button id="countPlus" type="button" aria-label="Flere">+</button>
+        </div>
+        <small id="stakeHint"></small>
+      </div>
+
+      <div class="actions">
+        <button id="deleteResult" type="button" class="link danger" hidden>Slet resultat</button>
+        <span class="spacer"></span>
+        <button type="button" class="ghost" data-close>Annullér</button>
+        <button id="saveResult" type="submit" class="primary">Gem resultat</button>
       </div>
     </form>
   </dialog>

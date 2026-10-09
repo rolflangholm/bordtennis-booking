@@ -140,3 +140,85 @@ test('en anonym browser kan læse bookinger, men ikke snyde', async () => {
   await assert.rejects(db.query('update settings set max_active_per_person = 99'), /permission denied/);
   await assert.rejects(db.query(`select _bt_assert_under_limit('Rolf')`), /permission denied/);
 });
+
+// ───── Scoreboard ─────
+
+const result = (rpc, booking_id, token, extra = {}) =>
+  rpc('save_result', { p_booking_id: booking_id, p_token: token, p_winner: 'A', p_stake: 'monster', ...extra });
+
+test('bookeren kan gemme et resultat, når kampen er gået i gang', async () => {
+  const { book, rpc } = await setup();
+  const { booking, owner_token } = await book('10:00', 'Rolf', ['Anne', 'Bo', 'Cecilie']);
+  const r = await result(rpc, booking.id, owner_token, { p_score_a: 11, p_score_b: 7, p_stake: 'arla' });
+  assert.deepEqual(r.team_a, ['Rolf', 'Anne']);
+  assert.deepEqual(r.team_b, ['Bo', 'Cecilie']);
+  assert.equal(r.winner, 'A');
+  assert.equal(r.stake, 'arla');
+  assert.equal(r.stake_count, 2);
+  assert.equal(r.paid, false);
+});
+
+test('kun bookeren kan indtaste resultat, og først når kampen er startet', async () => {
+  const { book, rpc } = await setup();
+  const now = await book('10:00', 'Rolf', ['Anne', 'Bo']);
+  await assert.rejects(result(rpc, now.booking.id, now.seat_tokens[1]), /Kun den der bookede/);
+  await assert.rejects(result(rpc, now.booking.id, null), /Kun den der bookede/);
+  const later = await book('11:00', 'Dorte', ['Emil', 'Frida']);
+  await assert.rejects(result(rpc, later.booking.id, later.owner_token), /ikke gået i gang/);
+});
+
+test('resultatet valideres', async () => {
+  const { book, rpc } = await setup();
+  const { booking, owner_token } = await book('10:00', 'Rolf', ['Anne', 'Bo']);
+  await assert.rejects(result(rpc, booking.id, owner_token, { p_score_a: 5, p_score_b: 11 }), /passer ikke/);
+  await assert.rejects(result(rpc, booking.id, owner_token, { p_score_a: 11 }), /begge scorer/);
+  await assert.rejects(result(rpc, booking.id, owner_token, { p_stake: 'øl' }), /spillede om/);
+  await assert.rejects(result(rpc, booking.id, owner_token, { p_winner: 'C' }), /hvem der vandt/);
+  await assert.rejects(result(rpc, booking.id, owner_token, { p_stake_count: 9 }), /mellem 1 og 8/);
+  const solo = await setup();
+  const s = await solo.book('10:00', 'Rolf', ['Anne']);
+  await assert.rejects(result(solo.rpc, s.booking.id, s.owner_token), /Begge hold/);
+});
+
+test('et resultat kan rettes, krydses af og slettes af bookeren', async () => {
+  const { book, rpc, db } = await setup();
+  const { booking, owner_token, seat_tokens } = await book('10:00', 'Rolf', ['Anne', 'Bo']);
+  const first = await result(rpc, booking.id, owner_token);
+  const again = await result(rpc, booking.id, owner_token, { p_winner: 'B', p_score_a: 9, p_score_b: 11 });
+  assert.equal(again.id, first.id, 'samme booking giver samme resultat');
+  assert.equal(again.winner, 'B');
+  await assert.rejects(
+    rpc('set_result_paid', { p_result_id: first.id, p_token: seat_tokens[1], p_paid: true }),
+    /Kun den der bookede/,
+  );
+  const paid = await rpc('set_result_paid', { p_result_id: first.id, p_token: owner_token, p_paid: true });
+  assert.equal(paid.paid, true);
+  await assert.rejects(rpc('delete_result', { p_result_id: first.id, p_token: 'forkert' }), /Kun den der bookede/);
+  await rpc('delete_result', { p_result_id: first.id, p_token: owner_token });
+  assert.equal((await db.query('select * from results')).rows.length, 0);
+});
+
+test('resultatet overlever, at bookingen aflyses, og kan stadig krydses af', async () => {
+  const { book, rpc, db } = await setup();
+  const { booking, owner_token } = await book('10:00', 'Rolf', ['Anne', 'Bo']);
+  const r = await result(rpc, booking.id, owner_token);
+  await rpc('cancel_booking', { p_id: booking.id, p_token: owner_token });
+  const rows = (await db.query('select booking_id from results')).rows;
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].booking_id, null);
+  assert.equal((await rpc('set_result_paid', { p_result_id: r.id, p_token: owner_token, p_paid: true })).paid, true);
+});
+
+test('en anonym browser kan læse resultater, men ikke snyde i dem', async () => {
+  const { book, rpc, db } = await setup();
+  const { booking, owner_token } = await book('10:00', 'Rolf', ['Anne', 'Bo']);
+  await result(rpc, booking.id, owner_token);
+  assert.equal((await db.query('select * from results')).rows.length, 1);
+  await assert.rejects(db.query('select * from result_secrets'), /permission denied/);
+  await assert.rejects(db.query(`update results set paid = true`), /permission denied/);
+  await assert.rejects(db.query(`delete from results`), /permission denied/);
+  await assert.rejects(
+    db.query(`insert into results (date, start, team_a, team_b, winner, stake) values ('${DAY}', '10:00', '{a}', '{b}', 'A', 'arla')`),
+    /permission denied/,
+  );
+});

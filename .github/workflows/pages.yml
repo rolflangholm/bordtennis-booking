@@ -48,7 +48,7 @@ jobs:
           node -e 'require("fs").writeFileSync("public/config.js",
             "window.BORDTENNIS_CONFIG = " + JSON.stringify({ supabaseUrl: process.env.SUPABASE_URL, supabaseKey: process.env.SUPABASE_KEY }) + ";\n")'
       - name: Giv filerne et versionsnummer, så browsere ikke blander gammel og ny kode
-        run: sed -i "s/?v=dev/?v=${GITHUB_SHA::8}/g" public/index.html public/app.js
+        run: sed -i "s/?v=dev/?v=${GITHUB_SHA::8}/g" public/*.html public/*.js
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
