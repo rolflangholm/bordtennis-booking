@@ -1,5 +1,5 @@
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
-import { factOfTheDay } from './facts.js';
+import { factOfTheDay } from './facts.js?v=dev';
 
 const $ = (sel) => document.querySelector(sel);
 const esc = (s) =>
@@ -56,6 +56,7 @@ async function loadSettings() {
   return {
     title: s.title,
     slotMinutes: s.slot_minutes,
+    bufferMinutes: s.buffer_minutes ?? 5,
     openTime: hhmm(s.open_time),
     closeTime: hhmm(s.close_time),
     daysAhead: s.days_ahead,
@@ -222,12 +223,15 @@ function renderStatus() {
 
   let html;
   let cls = 'status';
+  const next = nextOpenDay();
+  const nextName = next && (dayLabel(next) === 'I morgen' ? 'i morgen' : next.toLocaleDateString('da-DK', { weekday: 'long' }));
+  const nextLabel = next ? `${nextName} kl. ${openTime}` : '';
   if (!isTodayOpenDay || !slots.length) {
-    html = `<div><p class="big"><span class="dot"></span>Lukket i dag</p><p class="small">Book til en af de kommende dage herunder.</p></div>`;
+    html = `<div><p class="big"><span class="dot"></span>Lukket i dag</p><p class="small">${next ? `Åbner igen ${nextLabel}.` : ''} Du kan allerede booke nu.</p></div>`;
   } else if (t < openTime) {
     html = `<div><p class="big"><span class="dot"></span>Åbner kl. ${openTime}</p><p class="small">Book din kamp allerede nu.</p></div>`;
   } else if (idx === -1) {
-    html = `<div><p class="big"><span class="dot"></span>Lukket for i dag</p><p class="small">Bordet kan bookes ${openTime}–${closeTime}.</p></div>`;
+    html = `<div><p class="big"><span class="dot"></span>Lukket for i dag</p><p class="small">${next ? `Åbner igen ${nextLabel}. ` : ''}Bordet kan bookes ${openTime}–${closeTime}.</p></div>`;
   } else if (!slots[idx].booking) {
     cls += ' free';
     html = `<div><p class="big"><span class="dot"></span>Bordet er ledigt nu</p>
@@ -245,6 +249,12 @@ function renderStatus() {
   }
   el.className = cls;
   el.innerHTML = html;
+}
+
+// Den første bookbare dag efter i dag.
+function nextOpenDay() {
+  const today = isoDate(new Date());
+  return state.days.find((d) => isoDate(d) > today) || null;
 }
 
 function freeUntil(slots, idx) {
@@ -398,7 +408,8 @@ function connectLive() {
 }
 
 function renderRules() {
-  const { slotMinutes, openTime, closeTime, daysAhead, maxActivePerPerson, weekends } = state.config;
+  const { slotMinutes, bufferMinutes, openTime, closeTime, daysAhead, maxActivePerPerson, weekends } = state.config;
+  const playMinutes = Math.max(slotMinutes - bufferMinutes, 0);
   const limit = maxActivePerPerson
     ? `Du kan højst være med i <b>${maxActivePerPerson} kommende kampe</b> ad gangen, så alle får en tur.`
     : 'Der er ingen grænse for, hvor mange kampe du kan være med i.';
@@ -406,7 +417,9 @@ function renderRules() {
     [
       'Booking',
       [
-        `En kamp varer <b>${slotMinutes} minutter</b>.`,
+        bufferMinutes
+          ? `Hver tid er ${slotMinutes} minutter: <b>${playMinutes} minutters kamp</b> og <b>${bufferMinutes} minutters buffer</b> til at spille færdig og komme til og fra din plads.`
+          : `En kamp varer <b>${slotMinutes} minutter</b>.`,
         `Bordet kan bookes <b>${openTime}–${closeTime}</b> ${weekends ? 'alle dage' : 'på hverdage'}.`,
         `Du kan booke op til <b>${daysAhead} dage</b> frem.`,
         'Hver booking er en <b>double</b> med 4 pladser: Hold A mod Hold B.',
@@ -444,7 +457,8 @@ function renderRules() {
     .map(([title, items]) => `<h4>${title}</h4><ul>${items.map((i) => `<li>${i}</li>`).join('')}</ul>`)
     .join('');
   $('#rulesSummary').textContent =
-    `Kampe à ${slotMinutes} min · ${openTime}–${closeTime}` +
+    (bufferMinutes ? `${playMinutes} min kamp + ${bufferMinutes} min buffer` : `Kampe à ${slotMinutes} min`) +
+    ` · ${openTime}–${closeTime}` +
     (maxActivePerPerson ? ` · max ${maxActivePerPerson} kommende kampe pr. person` : '');
 }
 
@@ -458,7 +472,12 @@ function tick() {
   if (state.today !== today) {
     state.today = today;
     state.days = buildDays();
-    if (!state.date || state.date < today) state.date = isoDate(state.days[0] || new Date());
+    if (!state.date || state.date < today) {
+      // Efter lukketid (eller på en lukket dag) åbner siden på næste dag med ledige tider.
+      const todayOpen = state.days.length && isoDate(state.days[0]) === today && nowHHMM() < state.config.closeTime;
+      const first = todayOpen ? state.days[0] : nextOpenDay() || state.days[0];
+      state.date = isoDate(first || new Date());
+    }
     renderDays();
     renderFact();
   }

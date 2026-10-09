@@ -3,14 +3,14 @@
 Et lille bookingsystem til bordtennisrummet på kontoret. Slut med at stå og vente ved bordet. Book en tid, gå tilbage til skrivebordet, og kom ned når det er jeres tur.
 
 - **Double**: 4 pladser pr. booking (Hold A vs Hold B)
-- **20 minutter ad gangen** (kan ændres)
+- **20 minutter ad gangen**: 15 min kamp + 5 min buffer (kan ændres)
 - **Live-status** øverst: *"Bordet er ledigt nu"* eller *"Optaget · ledigt kl. 14:40"* med en knap til at booke næste ledige tid
 - **Mangler I spillere?** Book med tomme pladser, så kan kolleger trykke *+ Tilmeld*
 - **Live-opdatering**: alle skærme opdaterer med det samme, når nogen booker
 - **Fair brug**: hver person kan højst være med i 2 kommende kampe (kan ændres)
 - Kun den der bookede kan aflyse, og man kan kun fjerne sig selv
 - **Regler** på siden (knappen *Regler*), som bruger de aktuelle indstillinger og vises automatisk første gang
-- **Dagens fun fact** om bordtennis: en ny hver dag, den samme for alle. Flere kan tilføjes i `public/facts.js`
+- **Dagens fun fact**: noget helt tilfældigt, et nyt hver dag, den samme for alle. Flere kan tilføjes i `public/facts.js`
 - Virker på mobil og har dark mode
 
 **Sådan hænger det sammen:** Siden er en statisk side på **GitHub Pages**. Bookingerne ligger i en gratis **Supabase**-database, hvor alle regler håndhæves, så ingen kan snyde uden om siden. Begge dele er gratis.
@@ -53,7 +53,8 @@ Indstillingerne ligger i databasen. Ret dem i Supabase under **Table Editor → 
 | Felt | Standard | Beskrivelse |
 |---|---|---|
 | `title` | `Bordtennis booking` | Navn i toppen af siden |
-| `slot_minutes` | `20` | Længde på en booking i minutter |
+| `slot_minutes` | `20` | Længde på en booking i minutter (kamp + buffer) |
+| `buffer_minutes` | `5` | Den del af tiden, der er buffer til at spille færdig og komme til og fra pladsen |
 | `open_time` | `08:00` | Første tid der kan bookes |
 | `close_time` | `18:00` | Bordet lukker |
 | `days_ahead` | `14` | Hvor mange dage frem man kan booke |

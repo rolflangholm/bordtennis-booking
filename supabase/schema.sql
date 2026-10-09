@@ -11,6 +11,7 @@ create table if not exists public.settings (
   id int primary key default 1 check (id = 1),
   title text not null default 'Bordtennis booking',
   slot_minutes int not null default 20 check (slot_minutes between 5 and 120),
+  buffer_minutes int not null default 5 check (buffer_minutes >= 0), -- del af hver tid til at spille færdig og skifte
   open_time time not null default '08:00',
   close_time time not null default '18:00',
   days_ahead int not null default 14 check (days_ahead between 0 and 90),
@@ -18,6 +19,8 @@ create table if not exists public.settings (
   weekends boolean not null default false,
   timezone text not null default 'Europe/Copenhagen'
 );
+-- Tilføjet senere; kan køres på en eksisterende database.
+alter table public.settings add column if not exists buffer_minutes int not null default 5 check (buffer_minutes >= 0);
 insert into public.settings (id) values (1) on conflict (id) do nothing;
 
 create table if not exists public.bookings (
