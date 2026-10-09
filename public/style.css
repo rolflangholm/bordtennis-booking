@@ -231,3 +231,38 @@ legend { font-size: 0.8rem; font-weight: 600; color: var(--muted); margin-bottom
   .teams { grid-template-columns: 1fr; }
   .teams .vs { text-align: center; }
 }
+
+/* Header-knapper */
+.topactions { display: flex; gap: 8px; flex-shrink: 0; }
+
+/* Dagens fun fact */
+.fact {
+  margin-top: 12px;
+  padding: 14px 18px;
+  border-radius: var(--radius);
+  background: var(--open-bg);
+  border: 1px solid color-mix(in srgb, var(--open) 30%, transparent);
+}
+.fact-label {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--open);
+  margin-bottom: 4px;
+}
+.fact p { margin: 0; }
+
+/* Regler */
+.rules form { max-height: min(80vh, 720px); overflow-y: auto; }
+.rules h4 { margin: 16px 0 6px; font-size: 0.95rem; }
+.rules h4:first-child { margin-top: 0; }
+.rules ul { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
+.rules li { color: var(--text); }
+.linkbtn { border: 0; background: none; padding: 0; color: inherit; text-decoration: underline; font-size: inherit; }
+
+@media (max-width: 560px) {
+  .brand h1 { font-size: 1rem; }
+  .chip { padding: 6px 10px; font-size: 0.9rem; }
+}

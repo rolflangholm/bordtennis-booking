@@ -1,4 +1,5 @@
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
+import { factOfTheDay } from './facts.js';
 
 const $ = (sel) => document.querySelector(sel);
 const esc = (s) =>
@@ -27,6 +28,7 @@ const storage = {
 
 const state = {
   config: null,
+  today: null,
   days: [],
   date: null,
   slots: [],
@@ -372,9 +374,11 @@ function bindEvents() {
     else if (d.join) join(d.join, Number(d.seat));
     else if (d.leave) leave(d.leave, Number(d.seat));
     else if (d.cancel) cancel(d.cancel);
+    else if ('rules' in d) $('#rulesDialog').showModal();
     else if ('close' in d) el.closest('dialog').close();
   });
   $('#who').addEventListener('click', askName);
+  $('#rulesBtn').addEventListener('click', () => $('#rulesDialog').showModal());
   $('#hidePast').addEventListener('change', (e) => {
     storage.set('bt-hidePast', e.target.checked);
     renderSlots();
@@ -393,6 +397,74 @@ function connectLive() {
     .subscribe();
 }
 
+function renderRules() {
+  const { slotMinutes, openTime, closeTime, daysAhead, maxActivePerPerson, weekends } = state.config;
+  const limit = maxActivePerPerson
+    ? `Du kan højst være med i <b>${maxActivePerPerson} kommende kampe</b> ad gangen, så alle får en tur.`
+    : 'Der er ingen grænse for, hvor mange kampe du kan være med i.';
+  const sections = [
+    [
+      'Booking',
+      [
+        `En kamp varer <b>${slotMinutes} minutter</b>.`,
+        `Bordet kan bookes <b>${openTime}–${closeTime}</b> ${weekends ? 'alle dage' : 'på hverdage'}.`,
+        `Du kan booke op til <b>${daysAhead} dage</b> frem.`,
+        'Hver booking er en <b>double</b> med 4 pladser: Hold A mod Hold B.',
+        limit,
+        'Mangler I spillere, kan I booke med tomme pladser. Så kan kollegerne melde sig til med <b>+ Tilmeld</b>.',
+      ],
+    ],
+    [
+      'Navne',
+      [
+        'Brug dit rigtige fornavn, gerne med forbogstav i efternavnet (fx "Rolf L."), så alle kan se, hvem der spiller.',
+        `Brug altid det <b>samme navn</b>.${maxActivePerPerson ? ` Grænsen på ${maxActivePerPerson} kampe tælles pr. navn.` : ''} Det er ligegyldigt, om du skriver med store eller små bogstaver.`,
+        'Den samme person kan ikke stå på to pladser i den samme kamp.',
+        'Navne må højst være 40 tegn.',
+      ],
+    ],
+    [
+      'Aflysning',
+      [
+        'Kun den, der bookede, kan aflyse hele kampen, og kun fra den samme browser.',
+        'Du kan altid fjerne dig selv fra en kamp med <b>×</b>.',
+        'Kan I alligevel ikke spille? Så aflys hurtigst muligt, så andre kan få bordet.',
+      ],
+    ],
+    [
+      'God stil ved bordet',
+      [
+        'Mød op til tiden, og stop når tiden er gået. Det næste hold venter.',
+        'Er et hold ikke mødt op 5 minutter inde i deres tid, må andre bruge bordet.',
+        'Er bordet ledigt uden booking? Book det med <b>Book nu</b>, før I går i gang, så andre kan se, at det er optaget.',
+      ],
+    ],
+  ];
+  $('#rulesBody').innerHTML = sections
+    .map(([title, items]) => `<h4>${title}</h4><ul>${items.map((i) => `<li>${i}</li>`).join('')}</ul>`)
+    .join('');
+  $('#rulesSummary').textContent =
+    `Kampe à ${slotMinutes} min · ${openTime}–${closeTime}` +
+    (maxActivePerPerson ? ` · max ${maxActivePerPerson} kommende kampe pr. person` : '');
+}
+
+function renderFact() {
+  $('#fact').textContent = factOfTheDay();
+}
+
+// Står siden åben natten over, skifter dag, dagsliste og fun fact automatisk.
+function tick() {
+  const today = isoDate(new Date());
+  if (state.today !== today) {
+    state.today = today;
+    state.days = buildDays();
+    if (!state.date || state.date < today) state.date = isoDate(state.days[0] || new Date());
+    renderDays();
+    renderFact();
+  }
+  loadDay().catch((err) => toast(err.message, true));
+}
+
 function showSetupHelp() {
   $('#status').className = 'status';
   $('#status').innerHTML = `<div><p class="big"><span class="dot"></span>Mangler opsætning</p>
@@ -400,25 +472,25 @@ function showSetupHelp() {
 }
 
 async function init() {
+  renderFact();
   if (!supabase) return showSetupHelp();
   state.config = await loadSettings();
   document.title = state.config.title;
   $('#title').textContent = state.config.title;
   $('#hidePast').checked = storage.get('bt-hidePast', true);
-  $('#rules').textContent =
-    `Kampe à ${state.config.slotMinutes} min · ${state.config.openTime}–${state.config.closeTime}` +
-    (state.config.maxActivePerPerson ? ` · max ${state.config.maxActivePerPerson} kommende kampe pr. person` : '') +
-    ' · Opdaterer live';
-  state.days = buildDays();
-  state.date = isoDate(state.days[0] || new Date());
+  renderRules();
   renderWho();
-  renderDays();
   bindEvents();
-  await loadDay();
+  tick();
   connectLive();
   // Opdatér "nu"-markering og status hvert halve minut (og som backup for live-opdatering).
-  setInterval(loadDay, 30_000);
-  document.addEventListener('visibilitychange', () => !document.hidden && loadDay());
+  setInterval(tick, 30_000);
+  document.addEventListener('visibilitychange', () => !document.hidden && tick());
+  // Første besøg: vis reglerne én gang.
+  if (!storage.get('bt-seenRules', false)) {
+    storage.set('bt-seenRules', true);
+    $('#rulesDialog').showModal();
+  }
 }
 
 init().catch((err) => toast(err.message, true));

@@ -14,11 +14,19 @@
       <img src="icon.svg" alt="" width="32" height="32">
       <h1 id="title">Bordtennis booking</h1>
     </div>
-    <button id="who" class="chip" type="button" title="Skift navn">Hvem er du?</button>
+    <div class="topactions">
+      <button id="rulesBtn" class="chip" type="button">Regler</button>
+      <button id="who" class="chip" type="button" title="Skift navn">Hvem er du?</button>
+    </div>
   </header>
 
   <main>
     <section id="status" class="status" aria-live="polite"></section>
+
+    <aside class="fact" aria-label="Dagens fun fact">
+      <span class="fact-label">🏓 Dagens fun fact</span>
+      <p id="fact"></p>
+    </aside>
 
     <nav id="days" class="days" aria-label="Vælg dag"></nav>
 
@@ -28,7 +36,7 @@
     </div>
 
     <ol id="slots" class="slots"></ol>
-    <p class="foot" id="rules"></p>
+    <p class="foot"><span id="rulesSummary"></span> · <button type="button" class="linkbtn" data-rules>Se alle regler</button></p>
   </main>
 
   <dialog id="bookDialog">
@@ -63,6 +71,16 @@
       <div class="actions">
         <button type="button" class="ghost" data-close>Annullér</button>
         <button type="submit" class="primary">Gem</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="rulesDialog" class="rules">
+    <form method="dialog">
+      <h3>Regler for bordet</h3>
+      <div id="rulesBody"></div>
+      <div class="actions">
+        <button type="submit" class="primary">Forstået</button>
       </div>
     </form>
   </dialog>
