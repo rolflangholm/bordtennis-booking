@@ -1,5 +1,5 @@
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
-import { factOfTheDay } from './facts.js?v=dev';
+import { quoteOfTheDay } from './quotes.js?v=dev';
 
 const $ = (sel) => document.querySelector(sel);
 const esc = (s) =>
@@ -462,11 +462,13 @@ function renderRules() {
     (maxActivePerPerson ? ` · max ${maxActivePerPerson} kommende kampe pr. person` : '');
 }
 
-function renderFact() {
-  $('#fact').textContent = factOfTheDay();
+function renderQuote() {
+  const q = quoteOfTheDay();
+  $('#quote').textContent = q.text;
+  $('#quoteAuthor').textContent = `– ${q.author}`;
 }
 
-// Står siden åben natten over, skifter dag, dagsliste og fun fact automatisk.
+// Står siden åben natten over, skifter dag, dagsliste og dagens citat automatisk.
 function tick() {
   const today = isoDate(new Date());
   if (state.today !== today) {
@@ -479,7 +481,7 @@ function tick() {
       state.date = isoDate(first || new Date());
     }
     renderDays();
-    renderFact();
+    renderQuote();
   }
   loadDay().catch((err) => toast(err.message, true));
 }
@@ -491,7 +493,7 @@ function showSetupHelp() {
 }
 
 async function init() {
-  renderFact();
+  renderQuote();
   if (!supabase) return showSetupHelp();
   state.config = await loadSettings();
   document.title = state.config.title;

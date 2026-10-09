@@ -235,15 +235,17 @@ legend { font-size: 0.8rem; font-weight: 600; color: var(--muted); margin-bottom
 /* Header-knapper */
 .topactions { display: flex; gap: 8px; flex-shrink: 0; }
 
-/* Dagens fun fact */
-.fact {
+/* Dagens motivation */
+.quote {
+  margin-left: 0;
+  margin-right: 0;
   margin-top: 12px;
   padding: 14px 18px;
   border-radius: var(--radius);
   background: var(--open-bg);
   border: 1px solid color-mix(in srgb, var(--open) 30%, transparent);
 }
-.fact-label {
+.quote-label {
   display: block;
   font-size: 0.75rem;
   font-weight: 700;
@@ -252,7 +254,8 @@ legend { font-size: 0.8rem; font-weight: 600; color: var(--muted); margin-bottom
   color: var(--open);
   margin-bottom: 4px;
 }
-.fact p { margin: 0; }
+.quote blockquote { margin: 0; font-size: 1.05rem; font-style: italic; }
+.quote figcaption { margin-top: 6px; color: var(--muted); font-size: 0.85rem; }
 
 /* Regler */
 .rules form { max-height: min(80vh, 720px); overflow-y: auto; }

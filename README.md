@@ -10,7 +10,7 @@ Et lille bookingsystem til bordtennisrummet på kontoret. Slut med at stå og ve
 - **Fair brug**: hver person kan højst være med i 2 kommende kampe (kan ændres)
 - Kun den der bookede kan aflyse, og man kan kun fjerne sig selv
 - **Regler** på siden (knappen *Regler*), som bruger de aktuelle indstillinger og vises automatisk første gang
-- **Dagens fun fact**: noget helt tilfældigt, et nyt hver dag, den samme for alle. Flere kan tilføjes i `public/facts.js`
+- **Dagens motivation**: et nyt motiverende citat hver dag, det samme for alle. Flere kan tilføjes i `public/quotes.js`
 - Virker på mobil og har dark mode
 
 **Sådan hænger det sammen:** Siden er en statisk side på **GitHub Pages**. Bookingerne ligger i en gratis **Supabase**-database, hvor alle regler håndhæves, så ingen kan snyde uden om siden. Begge dele er gratis.
