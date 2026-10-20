@@ -75,11 +75,9 @@
 
       <section class="card fridge-card">
         <div class="card-head">
-          <h3>🧊 Køleskabet</h3>
-          <button id="editFridge" type="button" class="ghost small">Ret antal</button>
+          <h3>🧾 Udestående drikke <span>hvem skylder hvem</span></h3>
         </div>
-        <div id="fridge" class="fridge"></div>
-        <div id="fridgeLog" class="fridge-log"></div>
+        <div id="owed" class="fridge"></div>
       </section>
 
       <section class="card">
@@ -106,7 +104,7 @@
           <select name="p3" data-player data-empty="— Modstander —" aria-label="Modstander"></select>
         </fieldset>
       </div>
-      <p class="hint">Mangler I spillere? Lad pladserne stå tomme – så kan kollegerne tilmelde sig. Er en kollega ikke på listen, så vælg <b>+ Ny spiller…</b></p>
+      <p class="hint">Mangler I spillere? Lad pladserne stå tomme – så kan kollegerne tilmelde sig. Kan du ikke finde en kollega, skal de selv oprette sig under <b>Hvem er du?</b> første gang, de åbner siden.</p>
       <div class="actions">
         <button type="button" class="ghost" data-close>Annullér</button>
         <button type="submit" class="primary">Book bordet</button>
@@ -166,46 +164,13 @@
     </form>
   </dialog>
 
-  <dialog id="fridgeDialog" class="fridge-dlg">
-    <form id="fridgeForm" method="dialog">
-      <h3>🧊 Hvor mange er der i køleskabet?</h3>
-      <p class="hint">Tæl efter, eller skriv det nye antal, når I har fyldt op. Det bliver logget med dit navn.</p>
-      <div class="fridge-edit">
-        <div class="fe-item">
-          <span id="fridgeMonsterArt" class="fe-art"></span>
-          <b>Hvid Monster</b>
-          <div class="stepper big">
-            <button type="button" data-step="-1" data-field="monster" aria-label="Én færre Monster">−</button>
-            <input name="monster" type="number" inputmode="numeric" min="0" max="999" aria-label="Antal hvid Monster">
-            <button type="button" data-step="1" data-field="monster" aria-label="Én flere Monster">+</button>
-          </div>
-          <button type="button" class="quick" data-step="12" data-field="monster">+12</button>
-        </div>
-        <div class="fe-item">
-          <span id="fridgeArlaArt" class="fe-art"></span>
-          <b>Arla Protein kakao</b>
-          <div class="stepper big">
-            <button type="button" data-step="-1" data-field="arla" aria-label="Én færre Protein kakao">−</button>
-            <input name="arla" type="number" inputmode="numeric" min="0" max="999" aria-label="Antal Arla Protein kakao">
-            <button type="button" data-step="1" data-field="arla" aria-label="Én flere Protein kakao">+</button>
-          </div>
-          <button type="button" class="quick" data-step="12" data-field="arla">+12</button>
-        </div>
-      </div>
-      <label class="fe-name">Dit navn <input name="name" required maxlength="40" placeholder="Fx Festudvalget"></label>
-      <div class="actions">
-        <button type="button" class="ghost" data-close>Annullér</button>
-        <button type="submit" class="primary">Gem</button>
-      </div>
-    </form>
-  </dialog>
-
   <dialog id="nameDialog">
     <form id="nameForm" method="dialog">
       <h3>Hvem er du?</h3>
       <p class="hint" id="nameHint">Vælg dit navn fra listen. Det gemmes i din browser, så siden kan genkende dig.</p>
-      <select name="name" data-player data-empty="— Vælg dit navn —" required aria-label="Dit navn"></select>
-      <p class="hint small">Ikke på listen? Vælg <b>+ Ny spiller…</b> nederst. Brug altid det samme navn, så scoreboardet passer.</p>
+      <select name="name" data-player data-empty="— Vælg dit navn —" aria-label="Dit navn"></select>
+      <button id="iAmNew" type="button" class="add-debt">✋ Jeg er ny – opret mig</button>
+      <p class="hint small">Opret dig kun én gang. Dit navn bruges i bookinger og på scoreboardet.</p>
       <div class="actions">
         <button type="button" class="ghost" data-close>Annullér</button>
         <button type="submit" class="primary">Det er mig</button>
@@ -215,13 +180,13 @@
 
   <dialog id="playerDialog">
     <form id="playerForm" method="dialog">
-      <h3>Ny spiller</h3>
-      <p class="hint">Skriv navnet, som alle kender personen under – fx fornavn og forbogstav i efternavnet.</p>
+      <h3>Opret dig som spiller</h3>
+      <p class="hint">Skriv dit navn, som kollegerne kender dig – fx fornavn og forbogstav i efternavnet.</p>
       <input name="name" placeholder="Fx Simone M." required maxlength="40" autocomplete="off">
       <div id="playerHints" class="player-hints"></div>
       <div class="actions">
         <button type="button" class="ghost" data-close>Annullér</button>
-        <button type="submit" class="primary">Opret spiller</button>
+        <button type="submit" class="primary">Opret mig</button>
       </div>
     </form>
   </dialog>

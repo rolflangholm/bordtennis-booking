@@ -12,10 +12,10 @@ Et lille bookingsystem til bordtennisrummet på kontoret. Slut med at stå og ve
 - **Regler** på siden (knappen *Regler*), som bruger de aktuelle indstillinger og vises automatisk første gang
 - **Scoreboard** med dag, uge, måned og alt: podie, stilling, kamphistorik og en fejring med konfetti, når et resultat gemmes
 - **Vi spiller om** hvid Monster og Arla Protein kakao. Hver taber giver en drik til en vinder (fx Rolf → Henrik: Monster, Bo → Dennis: Protein kakao), og hver drik har sit eget *Betalt*-kryds
-- **Fast spillerliste**: *Hvem er du?* og holdene vælges fra en dropdown, så den samme person ikke findes under flere navne. Nye spillere oprettes med *+ Ny spiller…* (med "Mente du …?"-forslag)
+- **Fast spillerliste**: første gang man åbner siden, opretter man sig selv under *Hvem er du?* (med "Er det dig?"-forslag mod dubletter). Holdene vælges derefter fra en dropdown med de oprettede spillere
 - **Alle fire spillere** kan indtaste og rette resultatet bagefter – også hvem der spillede. Man kan også spille *uden drik*
 - **Taber-animation**: når et resultat gemmes, får taberne (genkendt på navnet) vinderne at se på podiet med NSF-kongekroner og pokal, mens de selv står i regnvejr med den drik, de skylder
-- **Køleskabet** delt op pr. produkt: lager, hvem der skylder, "snart tomt"-varsel og log. Tæller automatisk ned, når en drik krydses af, og alle kan rette antallet efter påfyldning
+- **Udestående drikke** pr. produkt: hvem skylder hvem, med et *Betalt*-kryds pr. drik
 - **Dagens motivation**: et nyt motiverende citat hver dag, det samme for alle. Flere kan tilføjes i `public/quotes.js`
 - Virker på mobil og har dark mode
 
@@ -67,7 +67,6 @@ Indstillingerne ligger i databasen. Ret dem i Supabase under **Table Editor → 
 | `max_active_per_person` | `2` | Max kommende kampe pr. person (`0` = ingen grænse) |
 | `weekends` | `false` | Tillad booking lørdag og søndag |
 | `timezone` | `Europe/Copenhagen` | Kontorets tidszone |
-| `fridge_low_at` | `4` | Køleskabet vises som "snart tomt", når der er så få tilbage (grundlag for påmindelser til festudvalget) |
 
 Skifter I `slot_minutes` eller `open_time`, bør eksisterende fremtidige bookinger passe til det nye tidsgitter. Ellers vises de ikke.
 

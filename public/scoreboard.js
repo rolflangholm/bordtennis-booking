@@ -1,17 +1,16 @@
-// Scoreboard: resultater, gæld pr. person, stillinger, køleskab og fejring.
+// Scoreboard: resultater, gæld pr. person, stillinger, udestående drikke og fejring.
 import {
   $, $$, esc, isoDate, parseDate, addDays, hhmm, toMinutes, isoWeek, mondayOf, fmt,
   supabase, unwrap, rpc, toast, tokens, teamName, reducedMotion, storage,
 } from './core.js?v=dev';
 import { DRINKS, drinkSvg, trophySvg } from './drinks.js?v=dev';
-import { celebrate, stampPaid, stagger, bump } from './celebrate.js?v=dev';
+import { celebrate, stampPaid, stagger } from './celebrate.js?v=dev';
 import { playerOptions, bindPlayerSelects } from './players.js?v=dev';
 
 const sb = {
   mode: 'week', // 'day' | 'week' | 'month' | 'all'
   anchor: new Date(),
   weekends: false,
-  lowAt: 4,
   myName: () => '',
   onChange: () => {},
 };
@@ -55,14 +54,6 @@ async function fetchUnpaid() {
   return results.sort((a, b) => (a.date + a.start < b.date + b.start ? 1 : -1));
 }
 
-async function fetchFridge() {
-  const [stock, log] = await Promise.all([
-    supabase.from('fridge').select('*').then(unwrap),
-    supabase.from('fridge_log').select('*').order('at', { ascending: false }).limit(6).then(unwrap),
-  ]);
-  return { stock: Object.fromEntries(stock.map((s) => [s.stake, s])), log };
-}
-
 // ───── Små byggeklodser ─────
 
 const winnersOf = (r) => (r.winner === 'A' ? r.team_a : r.team_b);
@@ -73,7 +64,6 @@ const capitalize = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
 let lastResults = [];
 let lastUnpaid = [];
-let lastFridge = { stock: {}, log: [] };
 
 const allResults = () => [...lastResults, ...lastUnpaid];
 function findDebt(id) {
@@ -354,64 +344,21 @@ async function deleteResult() {
   }
 }
 
-// ───── Køleskab ─────
+// ───── Udestående drikke (pr. produkt) ─────
 
-function openFridgeDialog() {
-  const form = $('#fridgeForm');
-  form.name.value = sb.myName();
-  form.monster.value = lastFridge.stock.monster?.count ?? 0;
-  form.arla.value = lastFridge.stock.arla?.count ?? 0;
-  $('#fridgeMonsterArt').innerHTML = drinkSvg('monster', { size: 70 });
-  $('#fridgeArlaArt').innerHTML = drinkSvg('arla', { size: 70 });
-  $('#fridgeDialog').showModal();
-}
-
-async function saveFridge(e) {
-  e.preventDefault();
-  const form = $('#fridgeForm');
-  try {
-    await rpc('set_fridge_stock', {
-      p_name: form.name.value,
-      p_monster: Number(form.monster.value),
-      p_arla: Number(form.arla.value),
-    });
-    $('#fridgeDialog').close();
-    toast('Køleskabet er opdateret 🧊');
-    sb.onChange();
-  } catch (err) {
-    toast(err.message, true);
-  }
-}
-
-function ago(iso) {
-  const min = Math.round((Date.now() - new Date(iso)) / 60000);
-  if (min < 1) return 'lige nu';
-  if (min < 60) return `${min} min siden`;
-  const h = Math.round(min / 60);
-  if (h < 24) return `${h} t siden`;
-  const d = Math.round(h / 24);
-  return d === 1 ? 'i går' : `${d} dage siden`;
-}
-
-function renderFridge(unpaid) {
-  $('#fridge').innerHTML = ['monster', 'arla']
+function renderOwed(unpaid) {
+  $('#owed').innerHTML = ['monster', 'arla']
     .map((stake) => {
-      const count = lastFridge.stock[stake]?.count ?? 0;
       const owed = unpaid.flatMap((r) => r.debts.filter((d) => !d.paid && d.stake === stake).map((d) => ({ r, d })));
-      const short = Math.max(owed.length - count, 0);
-      const low = count <= sb.lowAt;
-      return `<section class="fridge-shelf shelf-${stake}${low ? ' is-low' : ''}">
+      return `<section class="fridge-shelf shelf-${stake}">
         <div class="shelf-head">
           <div class="shelf-art">${drinkSvg(stake, { size: 78 })}</div>
           <div class="shelf-info">
             <h4>${esc(DRINKS[stake].name)}</h4>
-            <div class="stock"><b data-stock="${stake}">${count}</b><span>i køleskabet</span></div>
-            ${low ? `<span class="low">${count === 0 ? 'Tomt' : 'Snart tomt'} · sig til festudvalget</span>` : ''}
-            ${short ? `<span class="low">Mangler ${short} til den udestående gæld</span>` : ''}
+            <div class="stock"><b>${owed.length}</b><span>mangler at blive givet</span></div>
           </div>
         </div>
         <div class="shelf-owed">
-          <h5>Mangler at blive betalt <span class="pill">${owed.length}</span></h5>
           ${
             owed.length
               ? `<ul class="debt-list">${owed.map(({ r, d }) => debtItem(r, d, { withDate: true })).join('')}</ul>`
@@ -421,15 +368,6 @@ function renderFridge(unpaid) {
       </section>`;
     })
     .join('');
-  $('#fridgeLog').innerHTML = lastFridge.log.length
-    ? `<h5>Seneste i køleskabet</h5><ul>${lastFridge.log
-        .map(
-          (l) => `<li><span class="lg-delta ${l.delta > 0 ? 'up' : 'down'}">${l.delta > 0 ? '+' : ''}${l.delta}</span>
-            ${drinkSvg(l.stake, { size: 22 })}<span class="lg-text">${esc(l.reason)}${l.by_name && !l.reason.includes(l.by_name) ? ` · ${esc(l.by_name)}` : ''}</span>
-            <time>${ago(l.at)}</time></li>`,
-        )
-        .join('')}</ul>`
-    : '';
 }
 
 // ───── Scoreboard-visning ─────
@@ -614,10 +552,9 @@ export async function loadScoreboard() {
   $('#periodNext').disabled = Boolean(to && to >= isoDate(new Date()));
   $$('#scoreTabs button').forEach((b) => b.setAttribute('aria-selected', b.dataset.mode === sb.mode));
 
-  const [results, unpaid, fridge] = await Promise.all([fetchRange(from, to), fetchUnpaid(), fetchFridge()]);
+  const [results, unpaid] = await Promise.all([fetchRange(from, to), fetchUnpaid()]);
   lastResults = results;
   lastUnpaid = unpaid;
-  lastFridge = fridge;
   const rows = standings(results);
   const allDebts = results.flatMap((r) => r.debts);
   const count = (stake) => allDebts.filter((d) => d.stake === stake).length;
@@ -638,7 +575,7 @@ export async function loadScoreboard() {
     : `<div class="empty">${trophySvg(56)}<p><b>Ingen kampe ${periodWord}.</b>
        Når en af spillerne indtaster resultatet, dukker det op her.</p></div>`;
 
-  renderFridge(unpaid);
+  renderOwed(unpaid);
   $('#history').innerHTML = renderHistory(results) || '<p class="muted">Ingen kampe i perioden.</p>';
   $('#historyTitle').textContent = sb.mode === 'all' ? 'Alle kampe' : 'Kampe i perioden';
   animateBoard();
@@ -680,11 +617,7 @@ async function toggleDebt(input) {
     await rpc('set_debt_paid', { p_debt_id: d.id, p_token: tokens.forResult(r), p_paid: paid });
     if (paid) {
       stampPaid(input.closest('.debt'));
-      for (const stock of $$(`[data-stock="${d.stake}"]`)) {
-        stock.textContent = Math.max(Number(stock.textContent) - 1, 0);
-        bump(stock);
-      }
-      toast(`${d.debtor} → ${d.creditor}: ${DRINKS[d.stake].short} er taget fra køleskabet 🧊`);
+      toast(`${d.debtor} → ${d.creditor}: ${DRINKS[d.stake].short} er betalt ✓`);
       setTimeout(() => sb.onChange(), 1100);
     } else {
       sb.onChange();
@@ -695,10 +628,9 @@ async function toggleDebt(input) {
   }
 }
 
-export function scoreboardEvents({ onChange, weekends, lowAt, myName }) {
+export function scoreboardEvents({ onChange, weekends, myName }) {
   sb.onChange = onChange;
   sb.weekends = weekends;
-  sb.lowAt = lowAt;
   sb.myName = myName;
   sb.mode = storage.get('bt-scoreMode', 'week');
 
@@ -715,16 +647,6 @@ export function scoreboardEvents({ onChange, weekends, lowAt, myName }) {
   $('#periodLabel').addEventListener('click', () => {
     sb.anchor = new Date();
     loadScoreboard();
-  });
-
-  $('#editFridge').addEventListener('click', openFridgeDialog);
-  $('#fridgeForm').addEventListener('submit', saveFridge);
-  $('#fridgeForm').addEventListener('click', (e) => {
-    const b = e.target.closest('button[data-step]');
-    if (!b) return;
-    const input = $(`#fridgeForm [name="${b.dataset.field}"]`);
-    input.value = Math.max(0, Math.min(999, Number(input.value || 0) + Number(b.dataset.step)));
-    bump(input);
   });
 
   document.addEventListener('change', (e) => {

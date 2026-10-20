@@ -17,7 +17,7 @@ export const playerList = () => players.list;
 
 // <option>'er til en spiller-dropdown. Et navn der ikke (længere) er på listen, vises stadig,
 // så gamle kampe kan gemmes uden at skulle ændres.
-export function playerOptions(selected, { empty = null } = {}) {
+export function playerOptions(selected, { empty = null, allowNew = false } = {}) {
   const sel = (selected || '').toLowerCase();
   let html = empty != null ? `<option value=""${sel ? '' : ' selected'}>${esc(empty)}</option>` : '';
   if (sel && !players.byLower.has(sel)) {
@@ -26,7 +26,7 @@ export function playerOptions(selected, { empty = null } = {}) {
   html += players.list
     .map((n) => `<option value="${esc(n)}"${n.toLowerCase() === sel ? ' selected' : ''}>${esc(n)}</option>`)
     .join('');
-  return `${html}<option value="${NEW}">+ Ny spiller…</option>`;
+  return allowNew ? `${html}<option value="${NEW}">+ Ny spiller…</option>` : html;
 }
 
 // ───── "Mente du …?" ─────
@@ -76,7 +76,7 @@ export function createPlayer(prefill = '') {
     const showHints = () => {
       const list = similar(form.name.value);
       hints.innerHTML = list.length
-        ? `<p>Mente du en af dem? Så vælg den i stedet:</p>${list
+        ? `<p>Er det dig? Så vælg dig selv i stedet:</p>${list
             .map((n) => `<button type="button" class="chip-pick" data-pick="${esc(n)}">${esc(n)}</button>`)
             .join('')}`
         : '';
@@ -91,7 +91,7 @@ export function createPlayer(prefill = '') {
       try {
         const p = await rpc('add_player', { p_name: form.name.value });
         await loadPlayers();
-        toast(`${p.name} er tilføjet til spillerlisten`);
+        toast(`Velkommen, ${p.name}! Du er nu på spillerlisten 🏓`);
         finish(p.name);
       } catch (err) {
         toast(err.message, true);
@@ -114,7 +114,7 @@ export function bindPlayerSelects(root, onChange = () => {}) {
       const name = await createPlayer();
       for (const s of root.querySelectorAll('select[data-player]')) {
         const keep = s === sel ? name || previous : s.value;
-        s.innerHTML = playerOptions(keep, { empty: s.dataset.empty ?? null });
+        s.innerHTML = playerOptions(keep, { empty: s.dataset.empty ?? null, allowNew: 'allowNew' in s.dataset });
       }
     }
     sel.dataset.prev = sel.value;

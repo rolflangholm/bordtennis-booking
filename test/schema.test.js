@@ -295,48 +295,17 @@ test('en anonym browser kan læse resultater, men ikke snyde i dem', async () =>
   await assert.rejects(db.query(`select _bt_match_tokens(id) from bookings`), /permission denied/);
 });
 
-// ───── Køleskabet ─────
+// ───── Køleskabet er fjernet ─────
 
-const fridge = async (db) =>
-  Object.fromEntries((await db.query('select stake, count from fridge')).rows.map((r) => [r.stake, r.count]));
-
-test('alle kan rette antallet i køleskabet, og det logges med navn', async () => {
-  const { rpc, db } = await setup();
-  assert.deepEqual(await fridge(db), { monster: 0, arla: 0 });
-  assert.deepEqual(await rpc('set_fridge_stock', { p_name: 'Festudvalget', p_monster: 12, p_arla: 8 }), { monster: 12, arla: 8 });
-  await rpc('set_fridge_stock', { p_name: 'Rolf', p_monster: 10, p_arla: null });
-  assert.deepEqual(await fridge(db), { monster: 10, arla: 8 });
-  const log = (await db.query('select stake, delta, reason, by_name from fridge_log order by id')).rows;
-  assert.deepEqual(log.map((l) => [l.stake, l.delta, l.reason, l.by_name]), [
-    ['monster', 12, 'Fyldt op', 'Festudvalget'],
-    ['arla', 8, 'Fyldt op', 'Festudvalget'],
-    ['monster', -2, 'Optalt', 'Rolf'],
-  ]);
-  await assert.rejects(rpc('set_fridge_stock', { p_name: '', p_monster: 1, p_arla: 1 }), /navn/);
-  await assert.rejects(rpc('set_fridge_stock', { p_name: 'X', p_monster: -1, p_arla: 1 }), /mellem 0 og 999/);
-  await assert.rejects(db.query('update fridge set count = 99'), /permission denied/);
-});
-
-test('når en drik krydses af som betalt, går den fra i køleskabet – og tilbage hvis det fortrydes', async () => {
+test('køleskabet er væk, og "betalt" kan stadig krydses af og fortrydes', async () => {
   const { book, rpc, db } = await setup();
-  await rpc('set_fridge_stock', { p_name: 'Festudvalget', p_monster: 5, p_arla: 5 });
+  await assert.rejects(db.query('select * from fridge'), /does not exist/);
   const { booking, owner_token } = await book('10:00', 'Rolf', ['Anne', 'Bo', 'Cecilie']);
   const r = await save(rpc, booking.id, owner_token, { p_debts: debts(['Bo', 'Rolf', 'monster'], ['Cecilie', 'Anne', 'arla']) });
-  await rpc('set_debt_paid', { p_debt_id: r.debts[0].id, p_token: owner_token, p_paid: true });
-  await rpc('set_debt_paid', { p_debt_id: r.debts[0].id, p_token: owner_token, p_paid: true }); // dobbeltklik tæller ikke to gange
-  assert.deepEqual(await fridge(db), { monster: 4, arla: 5 });
-  await rpc('set_debt_paid', { p_debt_id: r.debts[0].id, p_token: owner_token, p_paid: false });
-  assert.deepEqual(await fridge(db), { monster: 5, arla: 5 });
-  const last = (await db.query('select reason, by_name from fridge_log order by id desc limit 2')).rows;
-  assert.deepEqual(last.map((l) => l.reason), ['Fortrudt: Bo → Rolf', 'Bo → Rolf']);
-});
-
-test('køleskabet går ikke under nul', async () => {
-  const { book, rpc, db } = await setup();
-  const { booking, owner_token } = await book('10:00', 'Rolf', ['Anne', 'Bo']);
-  const r = await save(rpc, booking.id, owner_token);
-  await rpc('set_debt_paid', { p_debt_id: r.debts[0].id, p_token: owner_token, p_paid: true });
-  assert.deepEqual(await fridge(db), { monster: 0, arla: 0 });
+  const paid = await rpc('set_debt_paid', { p_debt_id: r.debts[0].id, p_token: owner_token, p_paid: true });
+  assert.deepEqual(paid.debts.map((d) => d.paid), [true, false]);
+  const undone = await rpc('set_debt_paid', { p_debt_id: r.debts[0].id, p_token: owner_token, p_paid: false });
+  assert.deepEqual(undone.debts.map((d) => d.paid), [false, false]);
 });
 
 // ───── Spillerlisten ─────

@@ -562,9 +562,6 @@ begin
   select * into d from result_debts where id = p_debt_id;
   if d.paid is distinct from coalesce(p_paid, false) then
     update result_debts set paid = coalesce(p_paid, false) where id = p_debt_id;
-    perform _bt_fridge_change(d.stake, case when p_paid then -1 else 1 end,
-      case when p_paid then format('%s → %s', d.debtor, d.creditor) else format('Fortrudt: %s → %s', d.debtor, d.creditor) end,
-      d.creditor);
   end if;
   update results set updated_at = now() where id = r.id returning * into r;
   return _bt_result_public(r);
@@ -614,80 +611,18 @@ begin
   return v_out;
 end $$;
 
--- ───────────────────────────── Køleskabet ─────────────────────────────
--- Lager af drikke. Går automatisk ned, når en drik krydses af som "betalt / taget",
--- og kan rettes af alle (fx festudvalget efter påfyldning). Alt logges.
-
-alter table public.settings add column if not exists fridge_low_at int not null default 4
-  check (fridge_low_at >= 0); -- "snart tomt" når der er så få tilbage (til påmindelser)
-
-create table if not exists public.fridge (
-  stake text primary key check (stake in ('monster', 'arla')),
-  count int not null default 0,
-  updated_at timestamptz not null default now(),
-  updated_by text
-);
-insert into public.fridge (stake) values ('monster'), ('arla') on conflict (stake) do nothing;
-
-create table if not exists public.fridge_log (
-  id bigint generated always as identity primary key,
-  at timestamptz not null default now(),
-  stake text not null,
-  delta int not null,
-  count_after int not null,
-  reason text not null,
-  by_name text
-);
-create index if not exists fridge_log_at_idx on public.fridge_log (at desc);
-
-alter table public.fridge enable row level security;
-alter table public.fridge_log enable row level security;
-drop policy if exists "alle kan læse køleskabet" on public.fridge;
-create policy "alle kan læse køleskabet" on public.fridge for select using (true);
-drop policy if exists "alle kan læse køleskabsloggen" on public.fridge_log;
-create policy "alle kan læse køleskabsloggen" on public.fridge_log for select using (true);
-
-create or replace function public._bt_fridge_change(p_stake text, p_delta int, p_reason text, p_by text)
-returns void language plpgsql
-set search_path = public
-as $$
-declare
-  v_after int;
-begin
-  if p_delta = 0 then return; end if;
-  update fridge set count = greatest(count + p_delta, 0), updated_at = now(), updated_by = p_by
-    where stake = p_stake returning count into v_after;
-  insert into fridge_log (stake, delta, count_after, reason, by_name) values (p_stake, p_delta, v_after, p_reason, p_by);
-end $$;
-
--- Ret antallet i køleskabet (optælling eller påfyldning). Alle må, men navnet logges.
-create or replace function public.set_fridge_stock(p_name text, p_monster int, p_arla int)
-returns json language plpgsql security definer
-set search_path = public
-as $$
-declare
-  v_name text := _bt_clean_name(p_name);
-  v_old int;
-  v_new int;
-  v_stake text;
-begin
-  if v_name is null then raise exception 'Skriv dit navn'; end if;
-  perform pg_advisory_xact_lock(hashtext('bordtennis-booking'));
-  foreach v_stake in array array['monster', 'arla'] loop
-    v_new := case v_stake when 'monster' then p_monster else p_arla end;
-    if v_new is null then continue; end if;
-    if v_new not between 0 and 999 then raise exception 'Antal skal være mellem 0 og 999'; end if;
-    select count into v_old from fridge where stake = v_stake;
-    perform _bt_fridge_change(v_stake, v_new - v_old,
-      case when v_new > v_old then 'Fyldt op' else 'Optalt' end, v_name);
-  end loop;
-  return (select json_object_agg(stake, count) from fridge);
-end $$;
+-- ───────────────────────────── Køleskabet (fjernet) ─────────────────────────────
+-- Køleskabet bruges til mere end bordtennis, så lageret styres ikke længere her.
+drop function if exists public.set_fridge_stock(text, int, int);
+drop function if exists public._bt_fridge_change(text, int, text, text);
+drop table if exists public.fridge_log;
+drop table if exists public.fridge;
+alter table public.settings drop column if exists fridge_low_at;
 
 -- ───────────────────────────── Rettigheder ─────────────────────────────
 
 revoke all on public.booking_secrets, public.result_secrets from public;
-revoke insert, update, delete on public.bookings, public.settings, public.results, public.result_debts, public.fridge, public.fridge_log, public.players from public;
+revoke insert, update, delete on public.bookings, public.settings, public.results, public.result_debts, public.players from public;
 revoke execute on all functions in schema public from public;
 grant execute on function
   public.book_slot(date, time, text, text[]),
@@ -698,16 +633,15 @@ grant execute on function
   public.add_player(text),
   public.set_debt_paid(uuid, text, boolean),
   public.delete_result(uuid, text),
-  public.claim_my_seats(text),
-  public.set_fridge_stock(text, int, int)
+  public.claim_my_seats(text)
 to public;
 
 do $$
 begin
   if exists (select 1 from pg_roles where rolname = 'anon') then
     revoke all on public.booking_secrets, public.result_secrets from anon, authenticated;
-    revoke insert, update, delete, truncate on public.bookings, public.settings, public.results, public.result_debts, public.fridge, public.fridge_log, public.players from anon, authenticated;
-    grant select on public.bookings, public.settings, public.results, public.result_debts, public.fridge, public.fridge_log, public.players to anon, authenticated;
+    revoke insert, update, delete, truncate on public.bookings, public.settings, public.results, public.result_debts, public.players from anon, authenticated;
+    grant select on public.bookings, public.settings, public.results, public.result_debts, public.players to anon, authenticated;
     revoke execute on all functions in schema public from anon, authenticated;
     grant execute on function
       public.book_slot(date, time, text, text[]),
@@ -718,8 +652,7 @@ begin
       public.add_player(text),
       public.set_debt_paid(uuid, text, boolean),
       public.delete_result(uuid, text),
-      public.claim_my_seats(text),
-      public.set_fridge_stock(text, int, int)
+      public.claim_my_seats(text)
     to anon, authenticated;
   end if;
 end $$;
@@ -731,7 +664,7 @@ declare
   t text;
 begin
   if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
-    foreach t in array array['bookings', 'results', 'result_debts', 'fridge', 'players'] loop
+    foreach t in array array['bookings', 'results', 'result_debts', 'players'] loop
       if not exists (
         select 1 from pg_publication_tables
         where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t

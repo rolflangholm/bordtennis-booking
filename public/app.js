@@ -8,7 +8,7 @@ import {
 } from './scoreboard.js?v=dev';
 import { stagger } from './celebrate.js?v=dev';
 import { showTaunt } from './taunt.js?v=dev';
-import { loadPlayers, isPlayer, canonical, playerOptions, bindPlayerSelects, NEW } from './players.js?v=dev';
+import { loadPlayers, isPlayer, canonical, playerOptions, playerList, createPlayer } from './players.js?v=dev';
 
 const state = {
   config: null,
@@ -35,7 +35,6 @@ async function loadSettings() {
     daysAhead: s.days_ahead,
     maxActivePerPerson: s.max_active_per_person,
     weekends: s.weekends,
-    fridgeLowAt: s.fridge_low_at ?? 4,
   };
 }
 
@@ -280,20 +279,36 @@ function askName(message = '') {
   return new Promise((resolve) => {
     const dlg = $('#nameDialog');
     const form = $('#nameForm');
+    const empty = !playerList().length;
     $('#nameHint').textContent =
-      message || 'Vælg dit navn fra listen. Det gemmes i din browser, så siden kan genkende dig.';
-    form.name.innerHTML = playerOptions(isPlayer(state.name) ? canonical(state.name) : '', { empty: '— Vælg dit navn —' });
+      message ||
+      (empty
+        ? 'Ingen er oprettet endnu – vær den første! Tryk "Jeg er ny" og skriv dit navn.'
+        : 'Find dit navn på listen. Står du der ikke, så tryk "Jeg er ny". Det gemmes i din browser, så siden kan genkende dig.');
+    form.name.innerHTML = playerOptions(isPlayer(state.name) ? canonical(state.name) : '', {
+      empty: empty ? '— Ingen spillere endnu —' : '— Vælg dit navn —',
+    });
     dlg.showModal();
-    form.onsubmit = (e) => {
-      e.preventDefault();
-      if (!form.name.value || form.name.value === NEW) return;
-      state.name = form.name.value;
+    const choose = (name) => {
+      state.name = name;
       storage.set('bt-name', state.name);
       renderWho();
       dlg.close();
       claimSeats();
       refreshAll();
       resolve(state.name);
+    };
+    form.onsubmit = (e) => {
+      e.preventDefault();
+      if (!form.name.value) {
+        toast('Vælg dit navn – eller tryk "Jeg er ny"', true);
+        return;
+      }
+      choose(form.name.value);
+    };
+    $('#iAmNew').onclick = async () => {
+      const name = await createPlayer();
+      if (name) choose(name);
     };
     dlg.onclose = () => resolve(isPlayer(state.name) ? state.name : null);
   });
@@ -305,7 +320,9 @@ async function ensureIdentity() {
   return askName();
 }
 
-function openBooking(date, start) {
+async function openBooking(date, start) {
+  // Du skal være på spillerlisten for at booke.
+  if (!(await ensureIdentity())) return;
   const dlg = $('#bookDialog');
   const form = $('#bookForm');
   const day = new Date(`${date}T00:00`);
@@ -317,7 +334,7 @@ function openBooking(date, start) {
   (me ? form.p1 : form.p0).focus();
   form.onsubmit = async (e) => {
     e.preventDefault();
-    const names = ['p0', 'p1', 'p2', 'p3'].map((f) => (form[f].value === NEW ? '' : form[f].value));
+    const names = ['p0', 'p1', 'p2', 'p3'].map((f) => form[f].value);
     if (!names[0]) {
       toast('Vælg dit navn', true);
       return;
@@ -471,8 +488,6 @@ function bindEvents() {
     else if ('close' in d) el.closest('dialog').close();
   });
   $('#who').addEventListener('click', () => askName());
-  bindPlayerSelects($('#bookForm'));
-  bindPlayerSelects($('#nameForm'));
   $('#rulesBtn').addEventListener('click', () => $('#rulesDialog').showModal());
   $('#hidePast').addEventListener('change', (e) => {
     storage.set('bt-hidePast', e.target.checked);
@@ -493,7 +508,6 @@ function connectLive() {
     .on('postgres_changes', { event: '*', schema: 'public', table: 'bookings' }, later)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'results' }, later)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'result_debts' }, later)
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'fridge' }, later)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'players' }, () => loadPlayers().catch(() => {}))
     .subscribe();
 }
@@ -535,8 +549,7 @@ function renderRules() {
         'Vi spiller om <b>hvid Monster</b> og <b>Arla Protein kakao</b>. Hver taber giver en drik til en vinder, fx Rolf → Henrik: Monster og Bo → Dennis: Protein kakao. Vil I bare spille for æren, så vælg <b>Ingen drik</b>.',
         '<b>Alle fire spillere</b> og bookeren kan indtaste, rette og slette resultatet – også efter kampen. Står der et forkert navn på holdet, så ret det under <b>Ret hvem der spillede</b>.',
         'Siden genkender dig på dit navn under <b>Hvem er du?</b>: står dit navn i en kamp, får din browser lov til at rette den.',
-        'Når en drik er betalt eller taget fra køleskabet, sætter en af spillerne kryds i <b>Betalt</b>. Så går den automatisk fra i køleskabet.',
-        'Fylder du køleskabet op, så tryk <b>Ret antal</b> under Køleskabet, så alle kan se, hvad der er tilbage.',
+        'Når en drik er givet, sætter en af spillerne kryds i <b>Betalt</b> under <b>Udestående drikke</b>.',
       ],
     ],
     [
@@ -614,7 +627,6 @@ async function init() {
   scoreboardEvents({
     onChange: refreshAll,
     weekends: state.config.weekends,
-    lowAt: state.config.fridgeLowAt,
     myName: () => state.name,
   });
   await claimSeats();
@@ -625,13 +637,22 @@ async function init() {
   // Opdatér "nu"-markering og status hvert halve minut (og som backup for live-opdatering).
   setInterval(tick, 30_000);
   document.addEventListener('visibilitychange', () => !document.hidden && tick());
-  // Første besøg: vis reglerne én gang.
+  // Første besøg: vis reglerne, og bed derefter om dit navn. Kender vi dig ikke fra spillerlisten,
+  // spørger vi hver gang (du kan godt lukke og bare kigge).
+  const welcome = () => {
+    if (isPlayer(state.name)) return;
+    askName(
+      state.name
+        ? `Vi har fået en fast spillerliste, så scoreboardet passer. Du hed "${state.name}" her – find dig selv eller opret dig.`
+        : '',
+    );
+  };
   if (!storage.get('bt-seenRules', false)) {
     storage.set('bt-seenRules', true);
+    $('#rulesDialog').addEventListener('close', welcome, { once: true });
     $('#rulesDialog').showModal();
-  } else if (state.name && !isPlayer(state.name)) {
-    // Navnet fra før spillerlisten findes ikke på listen: bed om at vælge det rigtige.
-    askName(`Vi har fået en fast spillerliste, så scoreboardet passer. Du hed "${state.name}" her – vælg dit navn fra listen.`);
+  } else {
+    welcome();
   }
 }
 
