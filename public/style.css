@@ -991,3 +991,51 @@ legend { font-size: 0.8rem; font-weight: 700; color: var(--muted); margin-bottom
 @keyframes rain { from { transform: translateY(0); opacity: 0.9; } to { transform: translateY(42px); opacity: 0; } }
 .taunt.playing .owed { animation: owed 2.4s ease-in-out 2.4s infinite; }
 @keyframes owed { 0%, 100% { transform: translate(-30px, -54px) rotate(-8deg); } 50% { transform: translate(-30px, -50px) rotate(-14deg); } }
+
+/* ───── Spillerliste ───── */
+dialog select:not(.debt-row select) {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  font: inherit;
+  font-weight: 600;
+  color: inherit;
+}
+dialog select:focus { outline: 2px solid var(--brand); border-color: transparent; }
+.hint.small { font-size: 0.8rem; margin-top: 8px; }
+.player-hints p { margin: 10px 0 6px; font-size: 0.85rem; color: var(--muted); }
+.player-hints:empty { display: none; }
+.chip-pick {
+  margin: 0 6px 6px 0;
+  padding: 5px 12px;
+  border: 1px solid var(--brand);
+  border-radius: 999px;
+  background: var(--brand-soft);
+  color: var(--brand);
+  font-weight: 700;
+}
+.team-edit { margin: 4px 0 10px; border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 12px; background: var(--surface-2); }
+.team-edit summary { cursor: pointer; font-weight: 700; font-size: 0.88rem; color: var(--brand); }
+.team-edit[open] summary { margin-bottom: 10px; }
+.team-edit select { background: var(--surface) !important; }
+.debt-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 18px 0 8px; }
+.debt-head h4 { margin: 0; }
+.no-drink {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  padding: 5px 12px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.no-drink[aria-pressed="true"] { background: var(--brand); border-color: var(--brand); color: var(--brand-ink); }
+.no-drink-note { margin: 4px 0 0; padding: 12px; border-radius: var(--radius); background: var(--surface-2); text-align: center; color: var(--muted); font-weight: 600; }
+.no-stake { font-size: 0.78rem; font-weight: 700; color: var(--muted); }
+
+.res-nostake { margin: 6px 0 0 60px; }
+@media (max-width: 600px) { .res-nostake { margin-left: 0; } }
+
+.cel-honor { font-size: 4.5rem; line-height: 1; align-items: center; }

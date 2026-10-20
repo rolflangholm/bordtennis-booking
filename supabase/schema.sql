@@ -51,6 +51,21 @@ drop policy if exists "alle kan læse bookinger" on public.bookings;
 create policy "alle kan læse bookinger" on public.bookings for select using (true);
 -- booking_secrets har ingen policies: ingen adgang udefra.
 
+-- ───────────────────────────── Spillere ─────────────────────────────
+-- Fast liste over spillere, så den samme person ikke optræder under flere navne.
+-- Bookinger, tilmeldinger og resultater accepterer kun navne fra listen.
+
+create table if not exists public.players (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  active boolean not null default true,
+  created_at timestamptz not null default now()
+);
+create unique index if not exists players_name_ci on public.players (lower(name));
+alter table public.players enable row level security;
+drop policy if exists "alle kan læse spillere" on public.players;
+create policy "alle kan læse spillere" on public.players for select using (true);
+
 -- ───────────────────────────── Hjælpere ─────────────────────────────
 
 -- "Nu" i kontorets tidszone. Testene erstatter denne funktion for at styre tiden.
@@ -79,6 +94,23 @@ begin
     raise exception '% må højst være 40 tegn', p_field;
   end if;
   return v;
+end $$;
+
+-- Slå et navn op på spillerlisten og returnér den officielle stavemåde.
+create or replace function public._bt_player(p_raw text, p_field text default 'Navn')
+returns text language plpgsql stable
+set search_path = public
+as $$
+declare
+  v text := _bt_clean_name(p_raw, p_field);
+  v_name text;
+begin
+  if v is null then return null; end if;
+  select name into v_name from players where lower(name) = lower(v) and active;
+  if v_name is null then
+    raise exception '"%" er ikke på spillerlisten. Vælg et navn fra listen, eller opret en ny spiller.', v;
+  end if;
+  return v_name;
 end $$;
 
 create or replace function public._bt_assert_under_limit(p_name text)
@@ -119,7 +151,7 @@ as $$
 declare
   s settings := (select x from settings x where id = 1);
   v_today date := _bt_now()::date;
-  v_booker text := _bt_clean_name(p_name);
+  v_booker text := _bt_player(p_name);
   v_seats text[] := array[v_booker, null, null, null];
   v_tokens text[] := array[null, null, null, null]::text[];
   v_owner text := gen_random_uuid()::text;
@@ -150,7 +182,7 @@ begin
   end if;
 
   for i in 1..3 loop
-    v_seats[i + 1] := _bt_clean_name(p_players[i], 'Spillernavn');
+    v_seats[i + 1] := _bt_player(p_players[i], 'Spillernavn');
   end loop;
   v_filled := array(select x from unnest(v_seats) x where x is not null);
   if (select count(distinct lower(x)) from unnest(v_filled) x) <> cardinality(v_filled) then
@@ -182,7 +214,7 @@ returns json language plpgsql security definer
 set search_path = public
 as $$
 declare
-  v_name text := _bt_clean_name(p_name);
+  v_name text := _bt_player(p_name);
   v_token text := gen_random_uuid()::text;
   b bookings;
 begin
@@ -250,12 +282,63 @@ begin
   return json_build_object('ok', true);
 end $$;
 
+-- Opret en ny spiller. Alle må, men samme navn (uanset store/små bogstaver) kan ikke oprettes to gange.
+create or replace function public.add_player(p_name text)
+returns json language plpgsql security definer
+set search_path = public
+as $$
+declare
+  v text := _bt_clean_name(p_name);
+  v_existing players;
+  p players;
+begin
+  if v is null or char_length(v) < 2 then raise exception 'Skriv et navn på mindst 2 tegn'; end if;
+  perform pg_advisory_xact_lock(hashtext('bordtennis-booking'));
+  select * into v_existing from players where lower(name) = lower(v);
+  if found then
+    if not v_existing.active then
+      update players set active = true where id = v_existing.id returning * into p;
+      return json_build_object('id', p.id, 'name', p.name);
+    end if;
+    raise exception '% er allerede på listen', v_existing.name;
+  end if;
+  insert into players (name) values (v) returning * into p;
+  return json_build_object('id', p.id, 'name', p.name);
+end $$;
+
+-- Til oprydning (kun fra SQL Editor): flet et navn ind i et andet i hele historikken.
+create or replace function public._bt_rename_player(p_from text, p_to text)
+returns void language plpgsql
+set search_path = public
+as $$
+begin
+  update bookings set
+    seats = array(select case when lower(x) = lower(p_from) then p_to else x end
+                  from unnest(seats) with ordinality u(x, o) order by o),
+    created_by = case when lower(created_by) = lower(p_from) then p_to else created_by end
+  where exists (select 1 from unnest(seats) x where lower(x) = lower(p_from)) or lower(created_by) = lower(p_from);
+  update results set
+    team_a = array(select case when lower(x) = lower(p_from) then p_to else x end
+                   from unnest(team_a) with ordinality u(x, o) order by o),
+    team_b = array(select case when lower(x) = lower(p_from) then p_to else x end
+                   from unnest(team_b) with ordinality u(x, o) order by o)
+  where exists (select 1 from unnest(team_a || team_b) x where lower(x) = lower(p_from));
+  update result_debts set debtor = p_to where lower(debtor) = lower(p_from);
+  update result_debts set creditor = p_to where lower(creditor) = lower(p_from);
+  if lower(p_from) <> lower(p_to) then delete from players where lower(name) = lower(p_from); end if;
+  if not exists (select 1 from players where lower(name) = lower(p_to)) then
+    insert into players (name) values (p_to);
+  end if;
+end $$;
+
 -- ───────────────────────────── Scoreboard ─────────────────────────────
 -- Et resultat har en liste af "gæld": hvem på taberholdet giver hvad til hvem på vinderholdet,
 -- hver med sit eget "betalt"-kryds. Resultater gemmes med en kopi af holdene, så de overlever,
 -- at bookingen senere ryddes op. Bookeren og vinderne kan rette i dem.
 
 drop function if exists public.save_result(uuid, text, text, text, int, int, int);
+drop function if exists public.save_result(uuid, text, text, jsonb, int, int);
+drop function if exists public._bt_editor_tokens(uuid, text);
 drop function if exists public.set_result_paid(uuid, text, boolean);
 
 create table if not exists public.results (
@@ -314,14 +397,12 @@ as $$
   )
 $$;
 
--- Nøgler der må rette: bookerens + nøglerne til vinderholdets pladser.
-create or replace function public._bt_editor_tokens(p_booking_id uuid, p_winner text)
+-- Nøgler der må rette en kamps resultat: bookerens + alle fire pladsers.
+create or replace function public._bt_match_tokens(p_booking_id uuid)
 returns text[] language sql stable
 set search_path = public
 as $$
-  select array_remove(
-    array[s.owner_token] || case when p_winner = 'A' then s.seat_tokens[1:2] else s.seat_tokens[3:4] end,
-    null)
+  select array_remove(array[s.owner_token] || s.seat_tokens, null)
   from booking_secrets s where s.booking_id = p_booking_id
 $$;
 
@@ -332,32 +413,38 @@ as $$
   select p_token is not null and coalesce(
     case
       when exists (select 1 from booking_secrets where booking_id = r.booking_id)
-        then p_token = any (_bt_editor_tokens(r.booking_id, r.winner))
+        then p_token = any (_bt_match_tokens(r.booking_id))
       else exists (select 1 from result_secrets where result_id = r.id and p_token = any (editor_tokens))
     end, false)
 $$;
 
--- Gem eller ret resultatet. p_debts: [{"debtor": "Rolf", "creditor": "Henrik", "stake": "monster"}, …]
+-- Gem eller ret resultatet. Alle fire spillere og bookeren må – også efter kampen.
+-- p_debts: [{"debtor": "Rolf", "creditor": "Henrik", "stake": "monster"}, …] (tom liste = ingen drik).
+-- p_team_a/p_team_b: valgfrit; retter hvem der spillede (navne fra spillerlisten).
 create or replace function public.save_result(
   p_booking_id uuid, p_token text, p_winner text, p_debts jsonb,
-  p_score_a int default null, p_score_b int default null
+  p_score_a int default null, p_score_b int default null,
+  p_team_a text[] default null, p_team_b text[] default null
 )
 returns json language plpgsql security definer
 set search_path = public
 as $$
 declare
   b bookings;
+  sec booking_secrets;
   r results;
   old_r results;
   v_a text[];
   v_b text[];
+  v_new_seats text[];
   v_win text[];
   v_lose text[];
   v_old jsonb;
   v_debtor text;
   v_creditor text;
-  v_allowed boolean;
+  v_name text;
   rec record;
+  i int;
 begin
   perform pg_advisory_xact_lock(hashtext('bordtennis-booking'));
   select * into b from bookings where id = p_booking_id;
@@ -365,23 +452,55 @@ begin
   if p_winner is null or p_winner not in ('A', 'B') then raise exception 'Vælg hvem der vandt'; end if;
 
   select * into old_r from results where booking_id = b.id;
-  -- Nyt resultat: bookeren eller det hold, der skrives som vinder.
-  -- Findes resultatet allerede: kun bookeren eller de nuværende vindere (så taberne ikke kan vende det).
-  if old_r.id is not null then
-    v_allowed := _bt_can_edit(old_r, p_token);
-  else
-    v_allowed := coalesce(p_token = any (_bt_editor_tokens(b.id, p_winner)), false);
-  end if;
-  if not v_allowed then
-    raise exception 'Kun bookeren eller vinderne kan indtaste resultatet';
+  if not coalesce(p_token = any (_bt_match_tokens(b.id)), false)
+     and not (old_r.id is not null and _bt_can_edit(old_r, p_token)) then
+    raise exception 'Kun spillerne i kampen kan indtaste og rette resultatet';
   end if;
   if b.date + b.start > _bt_now() then raise exception 'Kampen er ikke gået i gang endnu'; end if;
 
-  v_a := array_remove(b.seats[1:2], null);
-  v_b := array_remove(b.seats[3:4], null);
+  -- Holdene: fra bookingen, eller rettet i resultatet.
+  if p_team_a is null and p_team_b is null then
+    v_a := array_remove(b.seats[1:2], null);
+    v_b := array_remove(b.seats[3:4], null);
+  else
+    v_a := '{}';
+    v_b := '{}';
+    for i in 1..coalesce(cardinality(p_team_a), 0) loop
+      v_name := _bt_clean_name(p_team_a[i]);
+      if v_name is null then continue; end if;
+      -- Navne der allerede står i bookingen må blive stående; nye skal være på spillerlisten.
+      v_name := coalesce((select x from unnest(b.seats) x where lower(x) = lower(v_name) limit 1), _bt_player(v_name));
+      v_a := v_a || v_name;
+    end loop;
+    for i in 1..coalesce(cardinality(p_team_b), 0) loop
+      v_name := _bt_clean_name(p_team_b[i]);
+      if v_name is null then continue; end if;
+      v_name := coalesce((select x from unnest(b.seats) x where lower(x) = lower(v_name) limit 1), _bt_player(v_name));
+      v_b := v_b || v_name;
+    end loop;
+    if cardinality(v_a) > 2 or cardinality(v_b) > 2 then raise exception 'Højst 2 spillere pr. hold'; end if;
+    if (select count(distinct lower(x)) from unnest(v_a || v_b) x) <> cardinality(v_a || v_b) then
+      raise exception 'Den samme spiller kan ikke stå to gange';
+    end if;
+  end if;
   if cardinality(v_a) = 0 or cardinality(v_b) = 0 then
     raise exception 'Begge hold skal have mindst én spiller';
   end if;
+
+  -- Er holdene rettet, rettes bookingen også. Skiftede pladser får nye nøgler.
+  v_new_seats := array[v_a[1], v_a[2], v_b[1], v_b[2]];
+  select * into sec from booking_secrets where booking_id = b.id;
+  for i in 1..4 loop
+    if lower(coalesce(v_new_seats[i], '')) <> lower(coalesce(b.seats[i], '')) then
+      sec.seat_tokens[i] := case when v_new_seats[i] is null then null else gen_random_uuid()::text end;
+      sec.claimed[i] := false;
+    end if;
+  end loop;
+  if v_new_seats is distinct from b.seats then
+    update bookings set seats = v_new_seats where id = b.id;
+    update booking_secrets set seat_tokens = sec.seat_tokens, claimed = sec.claimed where booking_id = b.id;
+  end if;
+
   v_win := case when p_winner = 'A' then v_a else v_b end;
   v_lose := case when p_winner = 'A' then v_b else v_a end;
 
@@ -393,8 +512,8 @@ begin
        (p_winner = 'A' and p_score_a <= p_score_b) or (p_winner = 'B' and p_score_b <= p_score_a)) then
     raise exception 'Scoren passer ikke med vinderen';
   end if;
-  if p_debts is null or jsonb_typeof(p_debts) <> 'array' or jsonb_array_length(p_debts) not between 1 and 8 then
-    raise exception 'Angiv mellem 1 og 8 drikke';
+  if p_debts is null or jsonb_typeof(p_debts) <> 'array' or jsonb_array_length(p_debts) > 8 then
+    raise exception 'Højst 8 drikke pr. kamp';
   end if;
 
   insert into results (booking_id, date, start, team_a, team_b, winner, score_a, score_b)
@@ -422,12 +541,12 @@ begin
       jsonb_build_object('p', rec.i, 'd', lower(v_debtor), 'c', lower(v_creditor), 's', rec.d ->> 'stake')), false));
   end loop;
 
-  insert into result_secrets (result_id, editor_tokens) values (r.id, _bt_editor_tokens(b.id, p_winner))
+  insert into result_secrets (result_id, editor_tokens) values (r.id, _bt_match_tokens(b.id))
   on conflict (result_id) do update set editor_tokens = excluded.editor_tokens;
   return _bt_result_public(r);
 end $$;
 
--- Sæt kryds ved "betalt / taget fra køleskabet" for én drik. Bookeren eller vinderne.
+-- Sæt kryds ved "betalt / taget fra køleskabet" for én drik. Spillerne i kampen.
 create or replace function public.set_debt_paid(p_debt_id uuid, p_token text, p_paid boolean)
 returns json language plpgsql security definer
 set search_path = public
@@ -439,7 +558,7 @@ begin
   perform pg_advisory_xact_lock(hashtext('bordtennis-booking'));
   select res.* into r from results res join result_debts x on x.result_id = res.id where x.id = p_debt_id;
   if not found then raise exception 'Findes ikke længere'; end if;
-  if not _bt_can_edit(r, p_token) then raise exception 'Kun bookeren eller vinderne kan krydse af'; end if;
+  if not _bt_can_edit(r, p_token) then raise exception 'Kun spillerne i kampen kan krydse af'; end if;
   select * into d from result_debts where id = p_debt_id;
   if d.paid is distinct from coalesce(p_paid, false) then
     update result_debts set paid = coalesce(p_paid, false) where id = p_debt_id;
@@ -451,7 +570,7 @@ begin
   return _bt_result_public(r);
 end $$;
 
--- Slet et resultat. Bookeren eller vinderne.
+-- Slet et resultat. Spillerne i kampen.
 create or replace function public.delete_result(p_result_id uuid, p_token text)
 returns json language plpgsql security definer
 set search_path = public
@@ -461,7 +580,7 @@ declare
 begin
   select * into r from results where id = p_result_id;
   if not found then raise exception 'Findes ikke længere'; end if;
-  if not _bt_can_edit(r, p_token) then raise exception 'Kun bookeren eller vinderne kan slette resultatet'; end if;
+  if not _bt_can_edit(r, p_token) then raise exception 'Kun spillerne i kampen kan slette resultatet'; end if;
   delete from results where id = p_result_id;
   return json_build_object('ok', true);
 end $$;
@@ -568,14 +687,15 @@ end $$;
 -- ───────────────────────────── Rettigheder ─────────────────────────────
 
 revoke all on public.booking_secrets, public.result_secrets from public;
-revoke insert, update, delete on public.bookings, public.settings, public.results, public.result_debts, public.fridge, public.fridge_log from public;
+revoke insert, update, delete on public.bookings, public.settings, public.results, public.result_debts, public.fridge, public.fridge_log, public.players from public;
 revoke execute on all functions in schema public from public;
 grant execute on function
   public.book_slot(date, time, text, text[]),
   public.join_seat(uuid, int, text),
   public.leave_seat(uuid, int, text),
   public.cancel_booking(uuid, text),
-  public.save_result(uuid, text, text, jsonb, int, int),
+  public.save_result(uuid, text, text, jsonb, int, int, text[], text[]),
+  public.add_player(text),
   public.set_debt_paid(uuid, text, boolean),
   public.delete_result(uuid, text),
   public.claim_my_seats(text),
@@ -586,15 +706,16 @@ do $$
 begin
   if exists (select 1 from pg_roles where rolname = 'anon') then
     revoke all on public.booking_secrets, public.result_secrets from anon, authenticated;
-    revoke insert, update, delete, truncate on public.bookings, public.settings, public.results, public.result_debts, public.fridge, public.fridge_log from anon, authenticated;
-    grant select on public.bookings, public.settings, public.results, public.result_debts, public.fridge, public.fridge_log to anon, authenticated;
+    revoke insert, update, delete, truncate on public.bookings, public.settings, public.results, public.result_debts, public.fridge, public.fridge_log, public.players from anon, authenticated;
+    grant select on public.bookings, public.settings, public.results, public.result_debts, public.fridge, public.fridge_log, public.players to anon, authenticated;
     revoke execute on all functions in schema public from anon, authenticated;
     grant execute on function
       public.book_slot(date, time, text, text[]),
       public.join_seat(uuid, int, text),
       public.leave_seat(uuid, int, text),
       public.cancel_booking(uuid, text),
-      public.save_result(uuid, text, text, jsonb, int, int),
+      public.save_result(uuid, text, text, jsonb, int, int, text[], text[]),
+      public.add_player(text),
       public.set_debt_paid(uuid, text, boolean),
       public.delete_result(uuid, text),
       public.claim_my_seats(text),
@@ -610,7 +731,7 @@ declare
   t text;
 begin
   if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
-    foreach t in array array['bookings', 'results', 'result_debts', 'fridge'] loop
+    foreach t in array array['bookings', 'results', 'result_debts', 'fridge', 'players'] loop
       if not exists (
         select 1 from pg_publication_tables
         where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t

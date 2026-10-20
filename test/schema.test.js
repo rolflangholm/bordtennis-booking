@@ -10,10 +10,13 @@ const { PGlite } = require('@electric-sql/pglite');
 const schema = fs.readFileSync(path.join(__dirname, '..', 'supabase', 'schema.sql'), 'utf8');
 const DAY = '2026-10-09'; // torsdag
 
+const PLAYERS = ['Rolf', 'Anne', 'Bo', 'Cecilie', 'Dorte', 'Henrik', 'Dennis', 'Emil', 'Frida', 'Gitte'];
+
 async function setup(settings = {}) {
   const db = new PGlite();
   await db.exec(`create role anon nologin; create role authenticated nologin;`);
   await db.exec(schema);
+  for (const name of PLAYERS) await db.query('insert into players (name) values ($1)', [name]);
   // Fast "nu": torsdag 9. okt 2026 kl. 10:05 lokal tid.
   await db.exec(`create or replace function public._bt_now() returns timestamp language sql stable
                  as $$ select timestamp '2026-10-09 10:05' $$;`);
@@ -179,22 +182,27 @@ test('gæld skal gå fra taberholdet til vinderholdet', async () => {
   await assert.rejects(save(rpc, booking.id, owner_token, { p_debts: debts(['Anne', 'Rolf', 'arla']) }), /ikke på taberholdet/);
   await assert.rejects(save(rpc, booking.id, owner_token, { p_debts: debts(['Bo', 'Cecilie', 'arla']) }), /ikke på vinderholdet/);
   await assert.rejects(save(rpc, booking.id, owner_token, { p_debts: debts(['Bo', 'Rolf', 'øl']) }), /hvid Monster/);
-  await assert.rejects(save(rpc, booking.id, owner_token, { p_debts: '[]' }), /mellem 1 og 8/);
+  const nine = Array.from({ length: 9 }, () => ['Bo', 'Rolf', 'arla']);
+  await assert.rejects(save(rpc, booking.id, owner_token, { p_debts: debts(...nine) }), /Højst 8/);
 });
 
-test('bookeren og vinderne kan indtaste – taberne og andre kan ikke', async () => {
+test('en kamp kan spilles uden at spille om en drik', async () => {
+  const { book, rpc } = await setup();
+  const { booking, owner_token } = await book('10:00', 'Rolf', ['Anne', 'Bo', 'Cecilie']);
+  const r = await save(rpc, booking.id, owner_token, { p_debts: '[]', p_score_a: 11, p_score_b: 9 });
+  assert.deepEqual(r.debts, []);
+  assert.equal(r.winner, 'A');
+});
+
+test('alle fire spillere og bookeren kan indtaste og rette – andre kan ikke', async () => {
   const { book, rpc } = await setup();
   const { booking, seat_tokens } = await book('10:00', 'Rolf', ['Anne', 'Bo', 'Cecilie']);
-  // Anne (vinder, hold A) må gerne
-  assert.ok(await save(rpc, booking.id, seat_tokens[1]));
-  // Bo (taber) må ikke ændre det
-  await assert.rejects(save(rpc, booking.id, seat_tokens[2]), /Kun bookeren eller vinderne/);
-  await assert.rejects(save(rpc, booking.id, 'gæt'), /Kun bookeren eller vinderne/);
-  // …og Bo kan ikke bare erklære sit eget hold som vinder, når resultatet findes
-  await assert.rejects(
-    save(rpc, booking.id, seat_tokens[2], { p_winner: 'B', p_debts: debts(['Rolf', 'Bo', 'arla']) }),
-    /Kun bookeren eller vinderne/,
-  );
+  assert.ok(await save(rpc, booking.id, seat_tokens[1])); // Anne (vinder)
+  // Bo (taber) kan også rette efter kampen
+  const fixed = await save(rpc, booking.id, seat_tokens[2], { p_winner: 'B', p_debts: debts(['Rolf', 'Bo', 'arla']) });
+  assert.equal(fixed.winner, 'B');
+  await assert.rejects(save(rpc, booking.id, 'gæt'), /Kun spillerne i kampen/);
+  await assert.rejects(save(rpc, booking.id, null), /Kun spillerne i kampen/);
 });
 
 test('en vinder kan rette resultatet til det andet hold, hvis det blev tastet forkert', async () => {
@@ -225,12 +233,13 @@ test('scoren og holdene valideres', async () => {
   await assert.rejects(save(solo.rpc, s.booking.id, s.owner_token, { p_debts: debts(['Anne', 'Rolf', 'arla']) }), /Begge hold/);
 });
 
-test('hver drik har sit eget betalt-kryds, som vinderne kan sætte', async () => {
+test('hver drik har sit eget betalt-kryds, som spillerne kan sætte', async () => {
   const { book, rpc } = await setup();
   const { booking, owner_token, seat_tokens } = await book('10:00', 'Rolf', ['Anne', 'Bo', 'Cecilie']);
   const r = await save(rpc, booking.id, owner_token, { p_debts: debts(['Bo', 'Rolf', 'monster'], ['Cecilie', 'Anne', 'arla']) });
   const [d1, d2] = r.debts;
-  await assert.rejects(rpc('set_debt_paid', { p_debt_id: d1.id, p_token: seat_tokens[2], p_paid: true }), /Kun bookeren eller vinderne/);
+  await assert.rejects(rpc('set_debt_paid', { p_debt_id: d1.id, p_token: 'gæt', p_paid: true }), /Kun spillerne i kampen/);
+  assert.ok(await rpc('set_debt_paid', { p_debt_id: d1.id, p_token: seat_tokens[2], p_paid: false })); // Bo må gerne
   const after = await rpc('set_debt_paid', { p_debt_id: d2.id, p_token: seat_tokens[1], p_paid: true }); // Anne
   assert.deepEqual(after.debts.map((d) => d.paid), [false, true]);
   // Rettes resultatet uden at ændre den drik, bevares "betalt"
@@ -242,7 +251,7 @@ test('hver drik har sit eget betalt-kryds, som vinderne kan sætte', async () =>
   assert.deepEqual(edited.debts.map((d) => [d.stake, d.paid]), [['arla', false], ['arla', true]]);
 });
 
-test('resultatet overlever, at bookingen aflyses, og vinderne kan stadig krydse af', async () => {
+test('resultatet overlever, at bookingen aflyses, og spillerne kan stadig krydse af', async () => {
   const { book, rpc, db } = await setup();
   const { booking, owner_token, seat_tokens } = await book('10:00', 'Rolf', ['Anne', 'Bo']);
   const r = await save(rpc, booking.id, owner_token);
@@ -250,7 +259,7 @@ test('resultatet overlever, at bookingen aflyses, og vinderne kan stadig krydse 
   assert.equal((await db.query('select booking_id from results')).rows[0].booking_id, null);
   const paid = await rpc('set_debt_paid', { p_debt_id: r.debts[0].id, p_token: seat_tokens[1], p_paid: true });
   assert.equal(paid.debts[0].paid, true);
-  await assert.rejects(rpc('delete_result', { p_result_id: r.id, p_token: seat_tokens[2] }), /Kun bookeren eller vinderne/);
+  await assert.rejects(rpc('delete_result', { p_result_id: r.id, p_token: 'gæt' }), /Kun spillerne i kampen/);
   await rpc('delete_result', { p_result_id: r.id, p_token: seat_tokens[1] });
   assert.equal((await db.query('select * from result_debts')).rows.length, 0);
 });
@@ -283,7 +292,7 @@ test('en anonym browser kan læse resultater, men ikke snyde i dem', async () =>
   await assert.rejects(db.query('select * from booking_secrets'), /permission denied/);
   await assert.rejects(db.query(`update result_debts set paid = true`), /permission denied/);
   await assert.rejects(db.query(`delete from results`), /permission denied/);
-  await assert.rejects(db.query(`select _bt_editor_tokens(id, 'A') from bookings`), /permission denied/);
+  await assert.rejects(db.query(`select _bt_match_tokens(id) from bookings`), /permission denied/);
 });
 
 // ───── Køleskabet ─────
@@ -328,4 +337,74 @@ test('køleskabet går ikke under nul', async () => {
   const r = await save(rpc, booking.id, owner_token);
   await rpc('set_debt_paid', { p_debt_id: r.debts[0].id, p_token: owner_token, p_paid: true });
   assert.deepEqual(await fridge(db), { monster: 0, arla: 0 });
+});
+
+// ───── Spillerlisten ─────
+
+test('kun navne fra spillerlisten kan bookes og tilmeldes – med listens stavemåde', async () => {
+  const { book, rpc } = await setup();
+  await assert.rejects(book('10:20', 'Ukendt Person'), /ikke på spillerlisten/);
+  await assert.rejects(book('10:20', 'Rolf', ['Charmedirektøren']), /ikke på spillerlisten/);
+  const { booking } = await book('10:20', 'rolf', ['ANNE']);
+  assert.deepEqual(booking.seats, ['Rolf', 'Anne', null, null]);
+  await assert.rejects(rpc('join_seat', { p_id: booking.id, p_seat: 2, p_name: 'Møller' }), /ikke på spillerlisten/);
+  const joined = await rpc('join_seat', { p_id: booking.id, p_seat: 2, p_name: 'bo' });
+  assert.equal(joined.booking.seats[2], 'Bo');
+});
+
+test('alle kan oprette en ny spiller, men ikke det samme navn to gange', async () => {
+  const { rpc, book } = await setup();
+  assert.equal((await rpc('add_player', { p_name: '  Simone  ' })).name, 'Simone');
+  await assert.rejects(rpc('add_player', { p_name: 'simone' }), /allerede på listen/);
+  await assert.rejects(rpc('add_player', { p_name: 'S' }), /mindst 2 tegn/);
+  assert.ok(await book('10:20', 'Simone'));
+});
+
+test('holdene kan rettes i resultatet, og bookingen følger med', async () => {
+  const { book, rpc, db } = await setup();
+  const { booking, owner_token, seat_tokens } = await book('10:00', 'Rolf', ['Anne', 'Bo', 'Cecilie']);
+  const r = await save(rpc, booking.id, seat_tokens[2], {
+    p_team_a: ['Rolf', 'Dorte'],
+    p_team_b: ['Bo', 'Cecilie'],
+    p_debts: debts(['Bo', 'Dorte', 'monster']),
+  });
+  assert.deepEqual(r.team_a, ['Rolf', 'Dorte']);
+  const seats = (await db.query('select seats from bookings')).rows[0].seats;
+  assert.deepEqual(seats, ['Rolf', 'Dorte', 'Bo', 'Cecilie']);
+  // Annes gamle nøgle virker ikke længere; Bo og bookeren kan stadig rette
+  await assert.rejects(save(rpc, booking.id, seat_tokens[1]), /Kun spillerne i kampen/);
+  assert.ok(await save(rpc, booking.id, owner_token, { p_team_a: ['Rolf', 'Dorte'], p_team_b: ['Bo', 'Cecilie'], p_debts: '[]' }));
+  // Dorte kan hente nøglen til sin nye plads
+  const claimed = await rpc('claim_my_seats', { p_name: 'Dorte' });
+  assert.equal(claimed.length, 1);
+  await assert.rejects(
+    save(rpc, booking.id, owner_token, { p_team_a: ['Rolf', 'Rolf'], p_team_b: ['Bo'], p_debts: '[]' }),
+    /to gange/,
+  );
+  await assert.rejects(
+    save(rpc, booking.id, owner_token, { p_team_a: ['Rolf', 'Nogen Andre'], p_team_b: ['Bo'], p_debts: '[]' }),
+    /ikke på spillerlisten/,
+  );
+});
+
+test('oprydning: et alias kan flettes ind i den rigtige spiller i hele historikken', async () => {
+  const { book, rpc, db } = await setup();
+  await db.exec('reset role');
+  await db.query(`insert into players (name) values ('Møller'), ('Charme Direktøren'), ('Simone')`);
+  await db.exec('set role anon');
+  const { booking, owner_token } = await book('10:00', 'Møller', ['Anne', 'Charme Direktøren', 'Bo']);
+  await save(rpc, booking.id, owner_token, { p_debts: debts(['Charme Direktøren', 'Møller', 'arla']) });
+  await db.exec('reset role');
+  await db.query(`select _bt_rename_player('Møller', 'Simone')`);
+  await db.query(`select _bt_rename_player('charme direktøren', 'Simone')`);
+  const b = (await db.query('select seats, created_by from bookings')).rows[0];
+  assert.deepEqual(b.seats, ['Simone', 'Anne', 'Simone', 'Bo']);
+  assert.equal(b.created_by, 'Simone');
+  const d = (await db.query('select debtor, creditor from result_debts')).rows[0];
+  assert.deepEqual([d.debtor, d.creditor], ['Simone', 'Simone']);
+  const names = (await db.query(`select name from players where name in ('Møller', 'Charme Direktøren', 'Simone')`)).rows;
+  assert.deepEqual(names.map((n) => n.name), ['Simone']);
+  await db.exec('set role anon');
+  await assert.rejects(db.query(`select _bt_rename_player('Bo', 'Rolf')`), /permission denied/);
+  await assert.rejects(db.query(`insert into players (name) values ('Hacker')`), /permission denied/);
 });

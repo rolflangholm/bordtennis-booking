@@ -96,17 +96,17 @@
       <div class="teams">
         <fieldset>
           <legend>Hold A</legend>
-          <input name="p0" placeholder="Dit navn" required maxlength="40" autocomplete="name">
-          <input name="p1" placeholder="Din makker" maxlength="40">
+          <select name="p0" data-player required aria-label="Dig"></select>
+          <select name="p1" data-player data-empty="— Din makker —" aria-label="Din makker"></select>
         </fieldset>
         <span class="vs">vs</span>
         <fieldset>
           <legend>Hold B</legend>
-          <input name="p2" placeholder="Modstander" maxlength="40">
-          <input name="p3" placeholder="Modstander" maxlength="40">
+          <select name="p2" data-player data-empty="— Modstander —" aria-label="Modstander"></select>
+          <select name="p3" data-player data-empty="— Modstander —" aria-label="Modstander"></select>
         </fieldset>
       </div>
-      <p class="hint">Mangler I spillere? Lad felterne stå tomme – så kan kollegerne tilmelde sig.</p>
+      <p class="hint">Mangler I spillere? Lad pladserne stå tomme – så kan kollegerne tilmelde sig. Er en kollega ikke på listen, så vælg <b>+ Ny spiller…</b></p>
       <div class="actions">
         <button type="button" class="ghost" data-close>Annullér</button>
         <button type="submit" class="primary">Book bordet</button>
@@ -117,6 +117,22 @@
   <dialog id="resultDialog" class="result-dlg">
     <form id="resultForm" method="dialog">
       <p class="dlg-kicker" id="resultWhen"></p>
+      <details id="teamEdit" class="team-edit">
+        <summary>Ret hvem der spillede</summary>
+        <div class="teams">
+          <fieldset>
+            <legend>Hold A</legend>
+            <select name="ta1" data-player aria-label="Hold A, spiller 1"></select>
+            <select name="ta2" data-player data-empty="— Ingen —" aria-label="Hold A, spiller 2"></select>
+          </fieldset>
+          <span class="vs">vs</span>
+          <fieldset>
+            <legend>Hold B</legend>
+            <select name="tb1" data-player aria-label="Hold B, spiller 1"></select>
+            <select name="tb2" data-player data-empty="— Ingen —" aria-label="Hold B, spiller 2"></select>
+          </fieldset>
+        </div>
+      </details>
       <h3>Hvem vandt?</h3>
       <div class="pick-teams">
         <button id="pickA" type="button" class="team-pick" aria-pressed="false"></button>
@@ -133,7 +149,10 @@
         </div>
       </div>
 
-      <h4>Hvem giver hvad til hvem?</h4>
+      <div class="debt-head">
+        <h4>Hvem giver hvad til hvem?</h4>
+        <button id="noDrink" type="button" class="no-drink" aria-pressed="false">🚫 Ingen drik</button>
+      </div>
       <div id="debtRows" class="debt-rows"></div>
       <button id="addDebt" type="button" class="add-debt" hidden>+ Tilføj en drik</button>
       <p id="debtSummary" class="debt-summary"></p>
@@ -183,12 +202,26 @@
 
   <dialog id="nameDialog">
     <form id="nameForm" method="dialog">
-      <h3>Hvad hedder du?</h3>
-      <p class="hint">Gemmes kun i din browser, så du ikke skal skrive det hver gang.</p>
-      <input name="name" placeholder="Fx Rolf" required maxlength="40" autocomplete="name">
+      <h3>Hvem er du?</h3>
+      <p class="hint" id="nameHint">Vælg dit navn fra listen. Det gemmes i din browser, så siden kan genkende dig.</p>
+      <select name="name" data-player data-empty="— Vælg dit navn —" required aria-label="Dit navn"></select>
+      <p class="hint small">Ikke på listen? Vælg <b>+ Ny spiller…</b> nederst. Brug altid det samme navn, så scoreboardet passer.</p>
       <div class="actions">
         <button type="button" class="ghost" data-close>Annullér</button>
-        <button type="submit" class="primary">Gem</button>
+        <button type="submit" class="primary">Det er mig</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="playerDialog">
+    <form id="playerForm" method="dialog">
+      <h3>Ny spiller</h3>
+      <p class="hint">Skriv navnet, som alle kender personen under – fx fornavn og forbogstav i efternavnet.</p>
+      <input name="name" placeholder="Fx Simone M." required maxlength="40" autocomplete="off">
+      <div id="playerHints" class="player-hints"></div>
+      <div class="actions">
+        <button type="button" class="ghost" data-close>Annullér</button>
+        <button type="submit" class="primary">Opret spiller</button>
       </div>
     </form>
   </dialog>

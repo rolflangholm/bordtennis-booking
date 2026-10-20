@@ -18,10 +18,10 @@ const MIME = {
   '.svg': 'image/svg+xml',
 };
 
-const TABLES = new Set(['settings', 'bookings', 'results', 'result_debts', 'fridge', 'fridge_log']);
+const TABLES = new Set(['settings', 'bookings', 'results', 'result_debts', 'fridge', 'fridge_log', 'players']);
 const FUNCTIONS = new Set([
   'book_slot', 'join_seat', 'leave_seat', 'cancel_booking', 'save_result', 'set_debt_paid', 'delete_result',
-  'claim_my_seats', 'set_fridge_stock',
+  'claim_my_seats', 'set_fridge_stock', 'add_player',
 ]);
 let db;
 
@@ -72,7 +72,7 @@ async function handleRest(req, res, url) {
       // Lister af objekter (fx p_debts) er jsonb; lister af tekst (p_players) er text[].
       const values = keys.map((k) => {
         const v = args[k];
-        return Array.isArray(v) && v.some((x) => x && typeof x === 'object') ? JSON.stringify(v) : v;
+        return k === 'p_debts' || (Array.isArray(v) && v.some((x) => x && typeof x === 'object')) ? JSON.stringify(v) : v;
       });
       const { rows } = await db.query(sql, values);
       return send(res, 200, rows[0].r);

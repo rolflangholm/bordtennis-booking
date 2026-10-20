@@ -8,6 +8,7 @@ import {
 } from './scoreboard.js?v=dev';
 import { stagger } from './celebrate.js?v=dev';
 import { showTaunt } from './taunt.js?v=dev';
+import { loadPlayers, isPlayer, canonical, playerOptions, bindPlayerSelects, NEW } from './players.js?v=dev';
 
 const state = {
   config: null,
@@ -274,23 +275,34 @@ function renderWho() {
   $('#who').textContent = state.name ? `👋 ${state.name}` : 'Hvem er du?';
 }
 
-function askName() {
+// "Hvem er du?": vælg dit navn fra spillerlisten (eller opret dig som ny spiller).
+function askName(message = '') {
   return new Promise((resolve) => {
     const dlg = $('#nameDialog');
     const form = $('#nameForm');
-    form.name.value = state.name;
+    $('#nameHint').textContent =
+      message || 'Vælg dit navn fra listen. Det gemmes i din browser, så siden kan genkende dig.';
+    form.name.innerHTML = playerOptions(isPlayer(state.name) ? canonical(state.name) : '', { empty: '— Vælg dit navn —' });
     dlg.showModal();
     form.onsubmit = (e) => {
       e.preventDefault();
-      state.name = form.name.value.replace(/\s+/g, ' ').trim();
+      if (!form.name.value || form.name.value === NEW) return;
+      state.name = form.name.value;
       storage.set('bt-name', state.name);
       renderWho();
       dlg.close();
       claimSeats();
+      refreshAll();
       resolve(state.name);
     };
-    dlg.onclose = () => resolve(state.name || null);
+    dlg.onclose = () => resolve(isPlayer(state.name) ? state.name : null);
   });
+}
+
+// Sørg for, at vi kender dig fra spillerlisten, før du booker eller tilmelder dig.
+async function ensureIdentity() {
+  if (isPlayer(state.name)) return canonical(state.name);
+  return askName();
 }
 
 function openBooking(date, start) {
@@ -298,27 +310,31 @@ function openBooking(date, start) {
   const form = $('#bookForm');
   const day = new Date(`${date}T00:00`);
   $('#bookWhen').textContent = `${dayLabel(day).toLowerCase()} kl. ${start}`;
-  form.reset();
-  form.p0.value = state.name;
+  const me = isPlayer(state.name) ? canonical(state.name) : '';
+  form.p0.innerHTML = playerOptions(me, { empty: '— Vælg dit navn —' });
+  for (const f of ['p1', 'p2', 'p3']) form[f].innerHTML = playerOptions('', { empty: form[f].dataset.empty });
   dlg.showModal();
-  (state.name ? form.p1 : form.p0).focus();
+  (me ? form.p1 : form.p0).focus();
   form.onsubmit = async (e) => {
     e.preventDefault();
-    const name = form.p0.value.trim();
+    const names = ['p0', 'p1', 'p2', 'p3'].map((f) => (form[f].value === NEW ? '' : form[f].value));
+    if (!names[0]) {
+      toast('Vælg dit navn', true);
+      return;
+    }
     try {
-      const res = await rpc('book_slot', {
-        p_date: date,
-        p_start: start,
-        p_name: name,
-        p_players: [form.p1.value, form.p2.value, form.p3.value],
-      });
-      if (!state.name) {
-        state.name = name;
-        storage.set('bt-name', name);
+      const res = await rpc('book_slot', { p_date: date, p_start: start, p_name: names[0], p_players: names.slice(1) });
+      if (!isPlayer(state.name)) {
+        state.name = names[0];
+        storage.set('bt-name', state.name);
         renderWho();
       }
-      // Kun din egen plads markeres som "din"; bookertokenet kan fjerne de andre.
-      saveTokens(res.booking.id, { owner: res.owner_token, seats: { 0: res.seat_tokens[0] } });
+      // Bookeren får bookingnøglen; din egen plads markeres som "din".
+      const seats = {};
+      res.booking.seats.forEach((n, i) => {
+        if (n && n.toLowerCase() === state.name.toLowerCase()) seats[i] = res.seat_tokens[i];
+      });
+      saveTokens(res.booking.id, { owner: res.owner_token, seats });
       dlg.close();
       toast(`Booket ${start} 🏓`);
       loadDay();
@@ -329,7 +345,7 @@ function openBooking(date, start) {
 }
 
 async function join(id, seat) {
-  const name = state.name || (await askName());
+  const name = await ensureIdentity();
   if (!name) return;
   try {
     const res = await rpc('join_seat', { p_id: id, p_seat: seat, p_name: name });
@@ -454,7 +470,9 @@ function bindEvents() {
     } else if ('rules' in d) $('#rulesDialog').showModal();
     else if ('close' in d) el.closest('dialog').close();
   });
-  $('#who').addEventListener('click', askName);
+  $('#who').addEventListener('click', () => askName());
+  bindPlayerSelects($('#bookForm'));
+  bindPlayerSelects($('#nameForm'));
   $('#rulesBtn').addEventListener('click', () => $('#rulesDialog').showModal());
   $('#hidePast').addEventListener('change', (e) => {
     storage.set('bt-hidePast', e.target.checked);
@@ -476,6 +494,7 @@ function connectLive() {
     .on('postgres_changes', { event: '*', schema: 'public', table: 'results' }, later)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'result_debts' }, later)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'fridge' }, later)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'players' }, () => loadPlayers().catch(() => {}))
     .subscribe();
 }
 
@@ -504,19 +523,19 @@ function renderRules() {
     [
       'Navne',
       [
-        'Brug dit rigtige fornavn, gerne med forbogstav i efternavnet (fx "Rolf L."), så alle kan se, hvem der spiller.',
-        `Brug altid det <b>samme navn</b>.${maxActivePerPerson ? ` Grænsen på ${maxActivePerPerson} kampe tælles pr. navn.` : ''} Scoreboardet samler også dine sejre under dit navn. Det er ligegyldigt, om du skriver med store eller små bogstaver.`,
+        'Alle spillere står på en <b>fast spillerliste</b>. Vælg dit navn under <b>Hvem er du?</b>, og vælg holdkammerater fra listen, når du booker.',
+        'Er en kollega ikke på listen, så vælg <b>+ Ny spiller…</b>. Siden foreslår lignende navne, så den samme person ikke kommer på to gange.',
+        `Hver person har ét navn, så scoreboardet bliver retvisende.${maxActivePerPerson ? ` Grænsen på ${maxActivePerPerson} kommende kampe tælles pr. spiller.` : ''}`,
         'Den samme person kan ikke stå på to pladser i den samme kamp.',
-        'Navne må højst være 40 tegn.',
       ],
     ],
     [
       'Scoreboard',
       [
-        'Vi spiller om <b>hvid Monster</b> og <b>Arla Protein kakao</b>. Hver taber giver en drik til en vinder, fx Rolf → Henrik: Monster og Bo → Dennis: Protein kakao.',
-        '<b>Bookeren og vinderne</b> kan indtaste, rette og slette resultatet, så snart kampen er gået i gang.',
-        'Siden genkender dig på dit navn under <b>Hvem er du?</b>: står dit navn i en kamp, får din browser lov til at rette den. Brug derfor altid dit eget navn.',
-        'Når en drik er betalt eller taget fra køleskabet, sætter en vinder kryds i <b>Betalt</b>. Så går den automatisk fra i køleskabet.',
+        'Vi spiller om <b>hvid Monster</b> og <b>Arla Protein kakao</b>. Hver taber giver en drik til en vinder, fx Rolf → Henrik: Monster og Bo → Dennis: Protein kakao. Vil I bare spille for æren, så vælg <b>Ingen drik</b>.',
+        '<b>Alle fire spillere</b> og bookeren kan indtaste, rette og slette resultatet – også efter kampen. Står der et forkert navn på holdet, så ret det under <b>Ret hvem der spillede</b>.',
+        'Siden genkender dig på dit navn under <b>Hvem er du?</b>: står dit navn i en kamp, får din browser lov til at rette den.',
+        'Når en drik er betalt eller taget fra køleskabet, sætter en af spillerne kryds i <b>Betalt</b>. Så går den automatisk fra i køleskabet.',
         'Fylder du køleskabet op, så tryk <b>Ret antal</b> under Køleskabet, så alle kan se, hvad der er tilbage.',
       ],
     ],
@@ -580,7 +599,12 @@ function showSetupHelp() {
 async function init() {
   renderQuote();
   if (!supabase) return showSetupHelp();
-  state.config = await loadSettings();
+  [state.config] = await Promise.all([loadSettings(), loadPlayers()]);
+  // Ret stavemåden til den på spillerlisten (fx "dodo" → "Dodo").
+  if (isPlayer(state.name) && canonical(state.name) !== state.name) {
+    state.name = canonical(state.name);
+    storage.set('bt-name', state.name);
+  }
   document.title = state.config.title;
   $('#title').textContent = state.config.title.replace(/\s*booking$/i, '');
   $('#hidePast').checked = storage.get('bt-hidePast', true);
@@ -605,6 +629,9 @@ async function init() {
   if (!storage.get('bt-seenRules', false)) {
     storage.set('bt-seenRules', true);
     $('#rulesDialog').showModal();
+  } else if (state.name && !isPlayer(state.name)) {
+    // Navnet fra før spillerlisten findes ikke på listen: bed om at vælge det rigtige.
+    askName(`Vi har fået en fast spillerliste, så scoreboardet passer. Du hed "${state.name}" her – vælg dit navn fra listen.`);
   }
 }
 

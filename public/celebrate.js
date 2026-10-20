@@ -143,10 +143,16 @@ export function celebrate({ winners, debts, score }) {
       <p class="cel-kicker">Kampen er afgjort</p>
       <h2 class="cel-title">${words.map((w) => `<span>${esc(w)}</span>`).join(' ')}</h2>
       ${score ? `<p class="cel-score"><span data-to="${score[0]}">0</span><i>–</i><span data-to="${score[1]}">0</span></p>` : ''}
-      <div class="cel-drinks">${debts.map((d) => `<div class="cel-drink">${drinkSvg(d.stake, { size: count > 3 ? 80 : 104 })}</div>`).join('')}</div>
-      <ul class="cel-debts">${debts
-        .map((d) => `<li><b>${esc(d.debtor)}</b> giver <b>${esc(d.creditor)}</b> en ${esc(DRINKS[d.stake].inline)}</li>`)
-        .join('')}</ul>
+      ${
+        count
+          ? `<div class="cel-drinks">${debts.map((d) => `<div class="cel-drink">${drinkSvg(d.stake, { size: count > 3 ? 80 : 104 })}</div>`).join('')}</div>`
+          : '<div class="cel-drinks cel-honor" aria-hidden="true">🏅</div>'
+      }
+      <ul class="cel-debts">${
+        count
+          ? debts.map((d) => `<li><b>${esc(d.debtor)}</b> giver <b>${esc(d.creditor)}</b> en ${esc(DRINKS[d.stake].inline)}</li>`).join('')
+          : '<li>Spillet for æren – ingen drik denne gang</li>'
+      }</ul>
       <button type="button" class="primary cel-ok">Fedt! 🏓</button>
     </div>`;
   document.body.append(root);

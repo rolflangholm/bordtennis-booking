@@ -5,6 +5,7 @@ import {
 } from './core.js?v=dev';
 import { DRINKS, drinkSvg, trophySvg } from './drinks.js?v=dev';
 import { celebrate, stampPaid, stagger, bump } from './celebrate.js?v=dev';
+import { playerOptions, bindPlayerSelects } from './players.js?v=dev';
 
 const sb = {
   mode: 'week', // 'day' | 'week' | 'month' | 'all'
@@ -99,8 +100,12 @@ export function resultLine(r) {
   return `<div class="result-line">
     <span class="rl-trophy">🏆</span>
     <span><b>${teamName(winnersOf(r))}</b> vandt${s ? ` ${s}` : ''}</span>
-    <span class="stake-chip">${drinkChips(r.debts)}</span>
-    <span class="paid-pill ${paid === r.debts.length ? 'yes' : 'no'}">${paid}/${r.debts.length} betalt</span>
+    ${
+      r.debts.length
+        ? `<span class="stake-chip">${drinkChips(r.debts)}</span>
+           <span class="paid-pill ${paid === r.debts.length ? 'yes' : 'no'}">${paid}/${r.debts.length} betalt</span>`
+        : '<span class="no-stake">Ingen drik</span>'
+    }
   </div>`;
 }
 
@@ -144,7 +149,7 @@ export async function renderPending(el) {
   el.hidden = false;
   el.innerHTML = `
     <div class="pending-head">${trophySvg(34)}
-      <div><b>Hvem vandt?</b><span>${pending.length === 1 ? 'Én kamp' : `${pending.length} kampe`} mangler resultat. Bookeren eller vinderne kan indtaste det.</span></div>
+      <div><b>Hvem vandt?</b><span>${pending.length === 1 ? 'Én kamp' : `${pending.length} kampe`} mangler resultat. Spillerne i kampen kan indtaste det.</span></div>
     </div>
     <ul>${pending
       .map(
@@ -180,18 +185,43 @@ export function openResultDialog({ bookingId, date, start, teamA, teamB, result 
     teamA,
     teamB,
     winner: result?.winner ?? null,
+    noDrink: result ? result.debts.length === 0 : false,
     debts: result ? result.debts.map(({ debtor, creditor, stake }) => ({ debtor, creditor, stake })) : [],
   };
   const form = $('#resultForm');
   $('#resultWhen').textContent = `${capitalize(fmt.full(parseDate(date)))} kl. ${start}`;
-  $('#pickA').innerHTML = `<span class="crown">👑</span><b>${teamName(teamA)}</b><small>Hold A</small>`;
-  $('#pickB').innerHTML = `<span class="crown">👑</span><b>${teamName(teamB)}</b><small>Hold B</small>`;
+  // Holdene kan rettes, hvis der stod et forkert navn i bookingen.
+  form.ta1.innerHTML = playerOptions(teamA[0]);
+  form.ta2.innerHTML = playerOptions(teamA[1], { empty: '— Ingen —' });
+  form.tb1.innerHTML = playerOptions(teamB[0]);
+  form.tb2.innerHTML = playerOptions(teamB[1], { empty: '— Ingen —' });
+  $('#teamEdit').open = false;
+  renderTeamPicks();
   form.sa.value = result?.score_a ?? '';
   form.sb.value = result?.score_b ?? '';
   $('#deleteResult').hidden = !result;
   $('#saveResult').textContent = result ? 'Gem ændringer' : 'Gem resultat';
   syncDialog();
   $('#resultDialog').showModal();
+}
+
+function renderTeamPicks() {
+  $('#pickA').innerHTML = `<span class="crown">👑</span><b>${teamName(dlgCtx.teamA)}</b><small>Hold A</small>`;
+  $('#pickB').innerHTML = `<span class="crown">👑</span><b>${teamName(dlgCtx.teamB)}</b><small>Hold B</small>`;
+}
+
+// Når holdene rettes: opdatér knapperne og fjern gæld med navne, der ikke længere er med.
+function teamsChanged() {
+  const f = $('#resultForm');
+  dlgCtx.teamA = [f.ta1.value, f.ta2.value].filter(Boolean);
+  dlgCtx.teamB = [f.tb1.value, f.tb2.value].filter(Boolean);
+  renderTeamPicks();
+  if (dlgCtx.winner) {
+    const has = (team, n) => team().some((x) => x.toLowerCase() === (n || '').toLowerCase());
+    const ok = dlgCtx.debts.every((d) => has(loseTeam, d.debtor) && has(winTeam, d.creditor));
+    if (!ok && !dlgCtx.noDrink) dlgCtx.debts = defaultDebts(winTeam(), loseTeam(), dlgCtx.debts[0]?.stake || 'monster');
+  }
+  syncDialog();
 }
 
 const winTeam = () => (dlgCtx.winner === 'A' ? dlgCtx.teamA : dlgCtx.teamB);
@@ -210,7 +240,14 @@ function syncDialog() {
   const c = dlgCtx;
   $('#pickA').setAttribute('aria-pressed', c.winner === 'A');
   $('#pickB').setAttribute('aria-pressed', c.winner === 'B');
+  $('#noDrink').setAttribute('aria-pressed', c.noDrink);
   const box = $('#debtRows');
+  if (c.noDrink) {
+    box.innerHTML = '<p class="no-drink-note">Spillet for æren – ingen drik denne gang 🏅</p>';
+    $('#addDebt').hidden = true;
+    $('#debtSummary').textContent = '';
+    return;
+  }
   if (!c.winner) {
     box.innerHTML = '<p class="muted debt-empty">Vælg først hvem der vandt.</p>';
     $('#addDebt').hidden = true;
@@ -251,7 +288,7 @@ function bounce(el) {
 function pickWinner(team, el) {
   const changed = dlgCtx.winner !== team;
   dlgCtx.winner = team;
-  if (changed) dlgCtx.debts = defaultDebts(winTeam(), loseTeam(), dlgCtx.debts[0]?.stake || 'monster');
+  if (changed && !dlgCtx.noDrink) dlgCtx.debts = defaultDebts(winTeam(), loseTeam(), dlgCtx.debts[0]?.stake || 'monster');
   syncDialog();
   bounce(el);
   if (changed) stagger($$('#debtRows .debt-row'), { gap: 70, y: 8 });
@@ -266,9 +303,13 @@ async function saveResult(e) {
     $$('.team-pick').forEach(bounce);
     return;
   }
-  const token = tokens.forWinner(c.bookingId, c.winner) || (c.result && tokens.forResult(c.result));
+  const token = tokens.forMatch(c.bookingId) || (c.result && tokens.forResult(c.result));
   if (!token) {
-    toast('Kun bookeren eller vinderne kan indtaste resultatet', true);
+    toast('Kun spillerne i kampen kan indtaste resultatet. Har du valgt dit navn under "Hvem er du?"?', true);
+    return;
+  }
+  if (!c.teamA.length || !c.teamB.length) {
+    toast('Begge hold skal have mindst én spiller', true);
     return;
   }
   const sa = form.sa.value === '' ? null : Number(form.sa.value);
@@ -278,16 +319,21 @@ async function saveResult(e) {
       p_booking_id: c.bookingId,
       p_token: token,
       p_winner: c.winner,
-      p_debts: c.debts,
+      p_debts: c.noDrink ? [] : c.debts,
       p_score_a: sa,
       p_score_b: sbv,
+      p_team_a: c.teamA,
+      p_team_b: c.teamB,
     });
     tokens.results[r.id] = token;
     tokens.save();
     $('#resultDialog').close();
     const score = r.score_a == null ? null : [Math.max(r.score_a, r.score_b), Math.min(r.score_a, r.score_b)];
-    sb.onChange();
-    await celebrate({ winners: winnersOf(r), debts: r.debts, score });
+    const me = (sb.myName() || '').toLowerCase();
+    sb.onChange(); // en taber, der selv indtaster resultatet, får taber-animationen i stedet
+    if (!losersOf(r).some((n) => n.toLowerCase() === me)) {
+      await celebrate({ winners: winnersOf(r), debts: r.debts, score });
+    }
   } catch (err) {
     toast(err.message, true);
   }
@@ -501,7 +547,7 @@ function renderTable(rows) {
 
 function debtItem(r, d, { withDate = false } = {}) {
   const edit = canEdit(r);
-  const tip = edit ? '' : 'title="Kun bookeren eller vinderne kan krydse af"';
+  const tip = edit ? '' : 'title="Kun spillerne i kampen kan krydse af"';
   return `<li class="debt${d.paid ? ' is-paid' : ''}">
     ${drinkSvg(d.stake, { size: 30 })}
     <span class="debt-who"><span><b>${esc(d.debtor)}</b> <i>→</i> ${esc(d.creditor)}</span>${withDate ? `<small>${esc(fmt.tiny(parseDate(r.date)))} · ${r.start}</small>` : ''}</span>
@@ -525,7 +571,11 @@ function resultItem(r) {
       </div>
       ${edit && r.booking_id ? `<button type="button" class="icon-btn" data-edit-result="${r.id}" title="Ret resultat">✎</button>` : ''}
     </div>
-    <ul class="debt-list">${r.debts.map((d) => debtItem(r, d)).join('')}</ul>
+    ${
+      r.debts.length
+        ? `<ul class="debt-list">${r.debts.map((d) => debtItem(r, d)).join('')}</ul>`
+        : '<p class="no-stake res-nostake">Ingen drik – spillet for æren</p>'
+    }
   </li>`;
 }
 
@@ -586,7 +636,7 @@ export async function loadScoreboard() {
   $('#scoreBody').innerHTML = results.length
     ? `${renderPodium(rows)}${renderTable(rows)}`
     : `<div class="empty">${trophySvg(56)}<p><b>Ingen kampe ${periodWord}.</b>
-       Når bookeren eller vinderne indtaster resultatet, dukker det op her.</p></div>`;
+       Når en af spillerne indtaster resultatet, dukker det op her.</p></div>`;
 
   renderFridge(unpaid);
   $('#history').innerHTML = renderHistory(results) || '<p class="muted">Ingen kampe i perioden.</p>';
@@ -716,6 +766,15 @@ export function scoreboardEvents({ onChange, weekends, lowAt, myName }) {
     }
   });
 
+  bindPlayerSelects($('#teamEdit'), teamsChanged);
+  $('#noDrink').addEventListener('click', (e) => {
+    dlgCtx.noDrink = !dlgCtx.noDrink;
+    if (!dlgCtx.noDrink && dlgCtx.winner && !dlgCtx.debts.length) {
+      dlgCtx.debts = defaultDebts(winTeam(), loseTeam());
+    }
+    syncDialog();
+    bounce(e.currentTarget);
+  });
   $('#pickA').addEventListener('click', (e) => pickWinner('A', e.currentTarget));
   $('#pickB').addEventListener('click', (e) => pickWinner('B', e.currentTarget));
   $('#addDebt').addEventListener('click', () => {
