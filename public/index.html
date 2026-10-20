@@ -56,6 +56,7 @@
     <div id="viewScore" hidden>
       <div class="sb-head">
         <h2>Scoreboard</h2>
+        <button id="myCard" type="button" class="ghost small my-card" hidden>👤 Min status</button>
         <div id="scoreTabs" class="seg" role="tablist" aria-label="Periode">
           <button type="button" role="tab" data-mode="day">Dag</button>
           <button type="button" role="tab" data-mode="week">Uge</button>
@@ -160,6 +161,15 @@
         <span class="spacer"></span>
         <button type="button" class="ghost" data-close>Annullér</button>
         <button id="saveResult" type="submit" class="primary">Gem resultat</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="playerCard" class="player-card">
+    <form method="dialog">
+      <div id="playerCardBody"></div>
+      <div class="actions">
+        <button type="submit" class="primary">Luk</button>
       </div>
     </form>
   </dialog>

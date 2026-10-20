@@ -16,6 +16,7 @@ Et lille bookingsystem til bordtennisrummet på kontoret. Slut med at stå og ve
 - **Alle fire spillere** kan indtaste og rette resultatet bagefter – også hvem der spillede. Man kan også spille *uden drik*
 - **Taber-animation**: når et resultat gemmes, får taberne (genkendt på navnet) vinderne at se på podiet med NSF-kongekroner og pokal, mens de selv står i regnvejr med den drik, de skylder
 - **Udestående drikke** pr. produkt: hvem skylder hvem, med et *Betalt*-kryds pr. drik
+- **Spillerkort**: tryk på et navn (eller *👤 Min status*) for at se, hvad personen skylder og til hvem, og hvad de har til gode
 - **Dagens motivation**: et nyt motiverende citat hver dag, det samme for alle. Flere kan tilføjes i `public/quotes.js`
 - Virker på mobil og har dark mode
 

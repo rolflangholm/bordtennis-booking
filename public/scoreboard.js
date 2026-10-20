@@ -455,7 +455,7 @@ function renderPodium(rows) {
       p
         ? `<div class="pod pod-${place[i]}">
             <div class="pod-avatar">${esc(initials(p.name))}${place[i] === 1 ? '<span class="pod-crown">👑</span>' : ''}</div>
-            <div class="pod-name">${esc(p.name)}</div>
+            <button type="button" class="pod-name name-link" data-player-card="${esc(p.name)}">${esc(p.name)}</button>
             <div class="pod-sub">${p.wins} ${p.wins === 1 ? 'sejr' : 'sejre'}</div>
             <div class="pod-block"><span>${place[i]}</span></div>
           </div>`
@@ -474,7 +474,7 @@ function renderTable(rows) {
       .map(
         (p, i) => `<tr>
           <td class="rank">${i + 1}</td>
-          <td class="l"><span class="avatar">${esc(initials(p.name))}</span>${esc(p.name)}${p.owes ? ` <span class="owes" title="Skylder stadig">skylder ${p.owes}</span>` : ''}</td>
+          <td class="l"><button type="button" class="name-link" data-player-card="${esc(p.name)}"><span class="avatar">${esc(initials(p.name))}</span>${esc(p.name)}</button>${p.owes ? ` <span class="owes" title="Skylder stadig">skylder ${p.owes}</span>` : ''}</td>
           <td class="opt">${p.games}</td><td class="w">${p.wins}</td><td>${p.losses}</td>
           <td class="opt">${Math.round((p.wins / p.games) * 100)}</td>
           <td>${p.monster || '–'}</td><td>${p.arla || '–'}</td>
@@ -488,7 +488,7 @@ function debtItem(r, d, { withDate = false } = {}) {
   const tip = edit ? '' : 'title="Kun spillerne i kampen kan krydse af"';
   return `<li class="debt${d.paid ? ' is-paid' : ''}">
     ${drinkSvg(d.stake, { size: 30 })}
-    <span class="debt-who"><span><b>${esc(d.debtor)}</b> <i>→</i> ${esc(d.creditor)}</span>${withDate ? `<small>${esc(fmt.tiny(parseDate(r.date)))} · ${r.start}</small>` : ''}</span>
+    <span class="debt-who"><span><button type="button" class="name-link" data-player-card="${esc(d.debtor)}"><b>${esc(d.debtor)}</b></button> <i>→</i> <button type="button" class="name-link" data-player-card="${esc(d.creditor)}">${esc(d.creditor)}</button></span>${withDate ? `<small>${esc(fmt.tiny(parseDate(r.date)))} · ${r.start}</small>` : ''}</span>
     <label class="paid" ${tip}><input type="checkbox" data-debt="${d.id}" ${d.paid ? 'checked' : ''} ${edit ? '' : 'disabled'}>
       <span>Betalt</span></label>
     ${d.paid ? '<span class="stamp">Betalt ✓</span>' : ''}
@@ -545,10 +545,77 @@ function renderHistory(results) {
   return html;
 }
 
+// ───── Spillerkort: tryk på et navn ─────
+
+let cardName = null;
+const same = (a, b) => (a || '').toLowerCase() === (b || '').toLowerCase();
+const drinkCount = (list) =>
+  ['monster', 'arla']
+    .map((s) => [s, list.filter((x) => x.d.stake === s).length])
+    .filter(([, n]) => n)
+    .map(([s, n]) => `${n}× ${s === 'monster' ? 'Monster' : 'Protein'}`)
+    .join(' · ');
+
+function groupBy(list, key) {
+  const map = new Map();
+  for (const x of list) {
+    const k = x.d[key];
+    const g = [...map.keys()].find((n) => same(n, k)) ?? k;
+    if (!map.has(g)) map.set(g, []);
+    map.get(g).push(x);
+  }
+  return [...map.entries()].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0], 'da'));
+}
+
+function renderPlayerCard() {
+  const name = cardName;
+  const unpaid = lastUnpaid.flatMap((r) => r.debts.filter((d) => !d.paid).map((d) => ({ r, d })));
+  const owes = unpaid.filter((x) => same(x.d.debtor, name));
+  const due = unpaid.filter((x) => same(x.d.creditor, name));
+  const stats = standings(lastResults).find((p) => same(p.name, name));
+  const period = periodRange().label;
+  const groups = (list, key, arrow) =>
+    groupBy(list, key)
+      .map(
+        ([other, items]) => `<div class="pc-group">
+          <div class="pc-group-head">${arrow} <b>${esc(other)}</b><span>${drinkCount(items)}</span></div>
+          <ul class="debt-list">${items.map(({ r, d }) => debtItem(r, d, { withDate: true })).join('')}</ul>
+        </div>`,
+      )
+      .join('');
+  $('#playerCardBody').innerHTML = `
+    <div class="pc-head">
+      <span class="pc-avatar">${esc(initials(name))}</span>
+      <div><h3>${esc(name)}</h3>
+        <p class="pc-period">${
+          stats
+            ? `${esc(period)}: ${stats.games} ${stats.games === 1 ? 'kamp' : 'kampe'} · ${stats.wins} ${stats.wins === 1 ? 'sejr' : 'sejre'} · ${stats.losses} ${stats.losses === 1 ? 'nederlag' : 'nederlag'}`
+            : `Ingen kampe · ${esc(period.toLowerCase())}`
+        }</p>
+      </div>
+    </div>
+    <div class="pc-summary">
+      <div class="pc-box ${owes.length ? 'owe' : 'ok'}"><b>${owes.length}</b><span>skylder</span><small>${drinkCount(owes) || 'Intet 🎉'}</small></div>
+      <div class="pc-box ${due.length ? 'due' : 'ok'}"><b>${due.length}</b><span>til gode</span><small>${drinkCount(due) || 'Intet'}</small></div>
+    </div>
+    ${owes.length ? `<h4>Skylder</h4>${groups(owes, 'creditor', '→')}` : ''}
+    ${due.length ? `<h4>Har til gode fra</h4>${groups(due, 'debtor', '←')}` : ''}
+    ${!owes.length && !due.length ? '<p class="muted pc-empty">Ingen udestående drikke – hverken til eller fra. 🧾✓</p>' : ''}`;
+}
+
+export function openPlayerCard(name) {
+  cardName = name;
+  renderPlayerCard();
+  const dlg = $('#playerCard');
+  if (!dlg.open) dlg.showModal();
+  stagger($$('#playerCardBody .pc-box, #playerCardBody .pc-group'), { gap: 60, y: 8 });
+}
+
 export async function loadScoreboard() {
   const { from, to, label } = periodRange();
   $('#periodLabel').textContent = label;
   $('#periodNav').hidden = sb.mode === 'all';
+  $('#myCard').hidden = !sb.myName();
   $('#periodNext').disabled = Boolean(to && to >= isoDate(new Date()));
   $$('#scoreTabs button').forEach((b) => b.setAttribute('aria-selected', b.dataset.mode === sb.mode));
 
@@ -579,6 +646,7 @@ export async function loadScoreboard() {
   $('#history').innerHTML = renderHistory(results) || '<p class="muted">Ingen kampe i perioden.</p>';
   $('#historyTitle').textContent = sb.mode === 'all' ? 'Alle kampe' : 'Kampe i perioden';
   animateBoard();
+  if ($('#playerCard').open) renderPlayerCard(); // hold et åbent spillerkort opdateret
 }
 
 function animateBoard() {
@@ -634,6 +702,7 @@ export function scoreboardEvents({ onChange, weekends, myName }) {
   sb.myName = myName;
   sb.mode = storage.get('bt-scoreMode', 'week');
 
+  $('#myCard').addEventListener('click', () => sb.myName() && openPlayerCard(sb.myName()));
   $('#scoreTabs').addEventListener('click', (e) => {
     const b = e.target.closest('button[data-mode]');
     if (!b) return;
@@ -660,6 +729,10 @@ export function scoreboardEvents({ onChange, weekends, myName }) {
   document.addEventListener('click', (e) => {
     const b = e.target.closest('button');
     if (!b) return;
+    if (b.dataset.playerCard) {
+      openPlayerCard(b.dataset.playerCard);
+      return;
+    }
     if (b.dataset.editResult) {
       const r = allResults().find((x) => x.id === b.dataset.editResult);
       if (r) {

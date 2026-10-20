@@ -1039,3 +1039,57 @@ dialog select:focus { outline: 2px solid var(--brand); border-color: transparent
 @media (max-width: 600px) { .res-nostake { margin-left: 0; } }
 
 .cel-honor { font-size: 4.5rem; line-height: 1; align-items: center; }
+
+/* ───── Spillerkort ───── */
+.name-link {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: inherit;
+  cursor: pointer;
+  border-radius: 6px;
+}
+.name-link:hover { color: var(--brand); text-decoration: underline; text-underline-offset: 3px; }
+.board .name-link { display: inline-flex; align-items: center; font-weight: 600; }
+.pod-name.name-link { color: #fff; font-weight: 800; }
+.pod-name.name-link:hover { color: #ffd66b; }
+.sb-head { position: relative; }
+.my-card { margin-left: auto; margin-right: 8px; }
+@media (max-width: 600px) { .my-card { margin-right: 0; } }
+
+.player-card form { max-height: min(85vh, 760px); overflow-y: auto; }
+.pc-head { display: flex; align-items: center; gap: 14px; }
+.pc-head h3 { margin: 0; font-size: 1.35rem; }
+.pc-avatar {
+  width: 56px; height: 56px; flex-shrink: 0;
+  display: grid; place-items: center;
+  border-radius: 50%;
+  background: var(--brand);
+  color: var(--brand-ink);
+  font-weight: 800;
+  font-size: 1.1rem;
+}
+.pc-period { margin: 2px 0 0; color: var(--muted); font-size: 0.85rem; }
+.pc-summary { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 16px 0 4px; }
+.pc-box {
+  display: grid;
+  justify-items: center;
+  padding: 12px 8px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  text-align: center;
+}
+.pc-box b { font-size: 2rem; line-height: 1; font-weight: 800; }
+.pc-box span { font-weight: 700; font-size: 0.85rem; }
+.pc-box small { color: var(--muted); font-size: 0.78rem; margin-top: 2px; }
+.pc-box.owe { background: var(--busy-bg); }
+.pc-box.owe b { color: var(--busy); }
+.pc-box.due { background: var(--free-bg); }
+.pc-box.due b { color: var(--free); }
+.pc-group { margin-top: 8px; }
+.pc-group-head { display: flex; align-items: baseline; gap: 6px; font-size: 0.95rem; }
+.pc-group-head span { margin-left: auto; color: var(--muted); font-size: 0.8rem; font-weight: 700; }
+.pc-group .debt { background: var(--surface-2); }
+.pc-empty { text-align: center; margin: 16px 0 4px; }
