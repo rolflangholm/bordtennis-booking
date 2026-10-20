@@ -1093,3 +1093,11 @@ dialog select:focus { outline: 2px solid var(--brand); border-color: transparent
 .pc-group-head span { margin-left: auto; color: var(--muted); font-size: 0.8rem; font-weight: 700; }
 .pc-group .debt { background: var(--surface-2); }
 .pc-empty { text-align: center; margin: 16px 0 4px; }
+
+/* ───── Slet mit navn ───── */
+.delete-me { display: block; margin: 4px 0 0; font-size: 0.8rem; }
+.impact { margin: 8px 0; padding: 12px 12px 12px 30px; border-radius: var(--radius); background: var(--busy-bg); color: var(--text); }
+.impact li { margin: 2px 0; }
+.impact b { color: var(--busy); }
+.danger-btn { background: var(--busy) !important; color: #fff !important; }
+.danger-btn:disabled { opacity: 0.45; cursor: not-allowed; filter: none; box-shadow: none; }

@@ -377,3 +377,43 @@ test('oprydning: et alias kan flettes ind i den rigtige spiller i hele historikk
   await assert.rejects(db.query(`select _bt_rename_player('Bo', 'Rolf')`), /permission denied/);
   await assert.rejects(db.query(`insert into players (name) values ('Hacker')`), /permission denied/);
 });
+
+// ───── Slet dit navn ─────
+
+test('kun browseren der oprettede navnet kan slette det – og alle kampe forsvinder', async () => {
+  const { rpc, book, db } = await setup();
+  const simone = await rpc('add_player', { p_name: 'Simone' });
+  assert.ok(simone.token);
+  const { booking, owner_token } = await book('10:00', 'Rolf', ['Simone', 'Bo', 'Cecilie']);
+  await save(rpc, booking.id, owner_token, { p_debts: debts(['Bo', 'Simone', 'arla'], ['Cecilie', 'Rolf', 'monster']) });
+  const other = await book('10:00', 'Anne', ['Bo'], '2026-10-12');
+  await save(rpc, other.booking.id, other.owner_token, { p_debts: '[]' }).catch(() => {}); // fremtidig: ikke startet
+  const later = await book('11:00', 'Simone', ['Anne']);
+
+  await assert.rejects(rpc('delete_player', { p_name: 'Simone', p_token: 'gæt', p_confirm: true }), /Kun den browser/);
+  const preview = await rpc('delete_player', { p_name: 'simone', p_token: simone.token });
+  assert.deepEqual([preview.results, preview.debts, preview.bookings], [1, 2, 2]);
+  assert.equal((await db.query('select count(*)::int as n from results')).rows[0].n, 1, 'forhåndsvisning sletter intet');
+
+  const done = await rpc('delete_player', { p_name: 'Simone', p_token: simone.token, p_confirm: true });
+  assert.equal(done.deleted, true);
+  assert.equal((await db.query('select count(*)::int as n from results')).rows[0].n, 0);
+  assert.equal((await db.query('select count(*)::int as n from result_debts')).rows[0].n, 0);
+  const seats = (await db.query('select seats, created_by from bookings where id = $1', [booking.id])).rows[0];
+  assert.deepEqual(seats.seats, ['Rolf', null, 'Bo', 'Cecilie']);
+  const l = (await db.query('select seats, created_by from bookings where id = $1', [later.booking.id])).rows[0];
+  assert.deepEqual([l.seats, l.created_by], [[null, 'Anne', null, null], 'Anne']);
+  assert.equal((await db.query(`select count(*)::int as n from players where name = 'Simone'`)).rows[0].n, 0);
+  await assert.rejects(book('11:20', 'Simone'), /ikke på spillerlisten/);
+});
+
+test('spillere uden nøgle kan få den én gang ("det er mig")', async () => {
+  const { rpc, db } = await setup();
+  const token = await rpc('claim_player', { p_name: 'rolf' });
+  assert.ok(token);
+  assert.equal(await rpc('claim_player', { p_name: 'Rolf' }), null, 'kun første browser');
+  assert.equal(await rpc('claim_player', { p_name: 'Findes Ikke' }), null);
+  const preview = await rpc('delete_player', { p_name: 'Rolf', p_token: token });
+  assert.equal(preview.results, 0);
+  await assert.rejects(db.query('select * from player_secrets'), /permission denied/);
+});

@@ -21,7 +21,7 @@ const MIME = {
 const TABLES = new Set(['settings', 'bookings', 'results', 'result_debts', 'fridge', 'fridge_log', 'players']);
 const FUNCTIONS = new Set([
   'book_slot', 'join_seat', 'leave_seat', 'cancel_booking', 'save_result', 'set_debt_paid', 'delete_result',
-  'claim_my_seats', 'set_fridge_stock', 'add_player',
+  'claim_my_seats', 'add_player', 'claim_player', 'delete_player',
 ]);
 let db;
 
@@ -75,7 +75,7 @@ async function handleRest(req, res, url) {
         return k === 'p_debts' || (Array.isArray(v) && v.some((x) => x && typeof x === 'object')) ? JSON.stringify(v) : v;
       });
       const { rows } = await db.query(sql, values);
-      return send(res, 200, rows[0].r);
+      return send(res, 200, JSON.stringify(rows[0].r)); // som PostgREST: altid JSON, også for tekst
     }
 
     const table = url.pathname.match(/^\/rest\/v1\/(\w+)$/);

@@ -8,7 +8,9 @@ import {
 } from './scoreboard.js?v=dev';
 import { stagger } from './celebrate.js?v=dev';
 import { showTaunt } from './taunt.js?v=dev';
-import { loadPlayers, isPlayer, canonical, playerOptions, playerList, createPlayer } from './players.js?v=dev';
+import {
+  loadPlayers, isPlayer, canonical, playerOptions, playerList, createPlayer, playerToken, setPlayerToken,
+} from './players.js?v=dev';
 
 const state = {
   config: null,
@@ -288,8 +290,20 @@ function askName(message = '') {
     form.name.innerHTML = playerOptions(isPlayer(state.name) ? canonical(state.name) : '', {
       empty: empty ? '— Ingen spillere endnu —' : '— Vælg dit navn —',
     });
+    const me = isPlayer(state.name) ? canonical(state.name) : null;
+    $('#deleteMe').hidden = !(me && playerToken(me));
+    $('#deleteMe').textContent = me ? `Slet ${me} fra spillerlisten…` : '';
+    $('#deleteMe').onclick = () => {
+      dlg.close();
+      deleteMe(me);
+    };
     dlg.showModal();
     const choose = (name) => {
+      if (!playerToken(name)) {
+        rpc('claim_player', { p_name: name })
+          .then((t) => t && setPlayerToken(name, t))
+          .catch(() => {});
+      }
       state.name = name;
       storage.set('bt-name', state.name);
       renderWho();
@@ -312,6 +326,50 @@ function askName(message = '') {
     };
     dlg.onclose = () => resolve(isPlayer(state.name) ? state.name : null);
   });
+}
+
+// Slet dit navn: vis først, hvad der forsvinder, og kræv at navnet skrives for at bekræfte.
+async function deleteMe(name) {
+  const token = playerToken(name);
+  if (!name || !token) return;
+  let impact;
+  try {
+    impact = await rpc('delete_player', { p_name: name, p_token: token });
+  } catch (err) {
+    toast(err.message, true);
+    return;
+  }
+  const dlg = $('#deleteMeDialog');
+  const form = $('#deleteMeForm');
+  const n = (count, one, many) => `<b>${count}</b> ${count === 1 ? one : many}`;
+  $('#deleteMeName').textContent = name;
+  $('#deleteMeImpact').innerHTML = `
+    <li>${n(impact.results, 'kamp', 'kampe')} slettes fra scoreboardet</li>
+    <li>${n(impact.debts, 'drik', 'drikke')} i de kampe slettes (også betalte og ubetalte til andre)</li>
+    <li>Du fjernes fra ${n(impact.bookings, 'booking', 'bookinger')}</li>`;
+  form.reset();
+  const submit = form.querySelector('.danger-btn');
+  submit.disabled = true;
+  form.confirm.placeholder = name;
+  form.confirm.oninput = () => (submit.disabled = form.confirm.value.trim().toLowerCase() !== name.toLowerCase());
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    if (submit.disabled) return;
+    try {
+      await rpc('delete_player', { p_name: name, p_token: token, p_confirm: true });
+      setPlayerToken(name, null);
+      state.name = '';
+      storage.set('bt-name', '');
+      renderWho();
+      dlg.close();
+      toast(`${name} er slettet sammen med ${impact.results} ${impact.results === 1 ? 'kamp' : 'kampe'}`);
+      await loadPlayers();
+      refreshAll();
+    } catch (err) {
+      toast(err.message, true);
+    }
+  };
+  dlg.showModal();
 }
 
 // Sørg for, at vi kender dig fra spillerlisten, før du booker eller tilmelder dig.
@@ -541,6 +599,7 @@ function renderRules() {
         'Er en kollega ikke på listen, så vælg <b>+ Ny spiller…</b>. Siden foreslår lignende navne, så den samme person ikke kommer på to gange.',
         `Hver person har ét navn, så scoreboardet bliver retvisende.${maxActivePerPerson ? ` Grænsen på ${maxActivePerPerson} kommende kampe tælles pr. spiller.` : ''}`,
         'Den samme person kan ikke stå på to pladser i den samme kamp.',
+        'Du kan slette dit navn under <b>Hvem er du?</b> – men så slettes <b>alle kampe, du har spillet</b>, også for dine med- og modspillere. Det kan kun gøres fra den browser, du oprettede dig i.',
       ],
     ],
     [
@@ -630,6 +689,12 @@ async function init() {
     myName: () => state.name,
   });
   await claimSeats();
+  // Navne oprettet før navne-nøglerne fandtes: hent nøglen til dit eget navn, hvis ingen har den.
+  if (isPlayer(state.name) && !playerToken(state.name)) {
+    rpc('claim_player', { p_name: state.name })
+      .then((t) => t && setPlayerToken(state.name, t))
+      .catch(() => {});
+  }
   checkTaunts();
   tick();
   connectLive();

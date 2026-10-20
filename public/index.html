@@ -181,9 +181,24 @@
       <select name="name" data-player data-empty="— Vælg dit navn —" aria-label="Dit navn"></select>
       <button id="iAmNew" type="button" class="add-debt">✋ Jeg er ny – opret mig</button>
       <p class="hint small">Opret dig kun én gang. Dit navn bruges i bookinger og på scoreboardet.</p>
+      <button id="deleteMe" type="button" class="link danger delete-me" hidden>Slet mit navn…</button>
       <div class="actions">
         <button type="button" class="ghost" data-close>Annullér</button>
         <button type="submit" class="primary">Det er mig</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="deleteMeDialog" class="delete-me-dlg">
+    <form id="deleteMeForm" method="dialog">
+      <h3>⚠️ Slet <span id="deleteMeName"></span>?</h3>
+      <p>Dit navn fjernes fra spillerlisten, og <b>alle kampe, du har spillet, slettes helt</b> – også for dine med- og modspillere.</p>
+      <ul id="deleteMeImpact" class="impact"></ul>
+      <p class="hint">Det kan ikke fortrydes. Skriv dit navn for at bekræfte:</p>
+      <input name="confirm" autocomplete="off" required>
+      <div class="actions">
+        <button type="button" class="ghost" data-close>Annullér</button>
+        <button type="submit" class="primary danger-btn">Slet mig og mine kampe</button>
       </div>
     </form>
   </dialog>

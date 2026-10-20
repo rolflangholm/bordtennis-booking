@@ -62,6 +62,12 @@ create table if not exists public.players (
   created_at timestamptz not null default now()
 );
 create unique index if not exists players_name_ci on public.players (lower(name));
+-- Hemmelig nøgle pr. spiller: kun browseren med nøglen kan slette navnet.
+create table if not exists public.player_secrets (
+  player_id uuid primary key references public.players (id) on delete cascade,
+  token text not null
+);
+alter table public.player_secrets enable row level security;
 alter table public.players enable row level security;
 drop policy if exists "alle kan læse spillere" on public.players;
 create policy "alle kan læse spillere" on public.players for select using (true);
@@ -283,6 +289,7 @@ begin
 end $$;
 
 -- Opret en ny spiller. Alle må, men samme navn (uanset store/små bogstaver) kan ikke oprettes to gange.
+-- Returnerer en nøgle, som browseren gemmer; den skal bruges for at slette navnet igen.
 create or replace function public.add_player(p_name text)
 returns json language plpgsql security definer
 set search_path = public
@@ -291,19 +298,90 @@ declare
   v text := _bt_clean_name(p_name);
   v_existing players;
   p players;
+  v_token text := gen_random_uuid()::text;
 begin
   if v is null or char_length(v) < 2 then raise exception 'Skriv et navn på mindst 2 tegn'; end if;
   perform pg_advisory_xact_lock(hashtext('bordtennis-booking'));
   select * into v_existing from players where lower(name) = lower(v);
   if found then
-    if not v_existing.active then
-      update players set active = true where id = v_existing.id returning * into p;
-      return json_build_object('id', p.id, 'name', p.name);
-    end if;
-    raise exception '% er allerede på listen', v_existing.name;
+    if v_existing.active then raise exception '% er allerede på listen', v_existing.name; end if;
+    update players set active = true where id = v_existing.id returning * into p;
+  else
+    insert into players (name) values (v) returning * into p;
   end if;
-  insert into players (name) values (v) returning * into p;
-  return json_build_object('id', p.id, 'name', p.name);
+  insert into player_secrets (player_id, token) values (p.id, v_token)
+  on conflict (player_id) do update set token = excluded.token;
+  return json_build_object('id', p.id, 'name', p.name, 'token', v_token);
+end $$;
+
+-- "Det er mig" for navnet: spillere oprettet før nøglerne fandtes får en nøgle første gang,
+-- en browser vælger dem. Har navnet allerede en nøgle, returneres null.
+create or replace function public.claim_player(p_name text)
+returns text language plpgsql security definer
+set search_path = public
+as $$
+declare
+  p players;
+  v_token text := gen_random_uuid()::text;
+begin
+  perform pg_advisory_xact_lock(hashtext('bordtennis-booking'));
+  select * into p from players where lower(name) = lower(_bt_clean_name(p_name)) and active;
+  if not found or exists (select 1 from player_secrets where player_id = p.id) then return null; end if;
+  insert into player_secrets (player_id, token) values (p.id, v_token);
+  return v_token;
+end $$;
+
+-- Slet dit navn. Sletter også ALLE kampe, du har spillet (med drikke), og fjerner dig fra bookinger.
+-- Med p_confirm = false returneres kun, hvad der ville blive slettet.
+create or replace function public.delete_player(p_name text, p_token text, p_confirm boolean default false)
+returns json language plpgsql security definer
+set search_path = public
+as $$
+declare
+  p players;
+  v_results int;
+  v_debts int;
+  v_bookings int;
+  b bookings;
+  i int;
+begin
+  perform pg_advisory_xact_lock(hashtext('bordtennis-booking'));
+  select * into p from players where lower(name) = lower(_bt_clean_name(p_name));
+  if not found then raise exception 'Spilleren findes ikke'; end if;
+  if p_token is null or not exists (select 1 from player_secrets where player_id = p.id and token = p_token) then
+    raise exception 'Kun den browser, der oprettede navnet, kan slette det';
+  end if;
+
+  select count(*) into v_results from results r
+    where exists (select 1 from unnest(r.team_a || r.team_b) x where lower(x) = lower(p.name));
+  select count(*) into v_debts from result_debts d join results r on r.id = d.result_id
+    where exists (select 1 from unnest(r.team_a || r.team_b) x where lower(x) = lower(p.name));
+  select count(*) into v_bookings from bookings bk
+    where exists (select 1 from unnest(bk.seats) x where lower(x) = lower(p.name));
+  if not coalesce(p_confirm, false) then
+    return json_build_object('name', p.name, 'results', v_results, 'debts', v_debts, 'bookings', v_bookings);
+  end if;
+
+  delete from results r
+    where exists (select 1 from unnest(r.team_a || r.team_b) x where lower(x) = lower(p.name));
+  -- Fjern navnet fra bookinger; tomme bookinger slettes.
+  for b in select * from bookings bk where exists (select 1 from unnest(bk.seats) x where lower(x) = lower(p.name)) loop
+    for i in 1..4 loop
+      if lower(b.seats[i]) = lower(p.name) then
+        b.seats[i] := null;
+        update booking_secrets set seat_tokens[i] = null, claimed[i] = false where booking_id = b.id;
+      end if;
+    end loop;
+    if (select bool_and(x is null) from unnest(b.seats) x) then
+      delete from bookings where id = b.id;
+    else
+      update bookings set seats = b.seats,
+        created_by = case when lower(created_by) = lower(p.name) then (array_remove(b.seats, null))[1] else created_by end
+      where id = b.id;
+    end if;
+  end loop;
+  delete from players where id = p.id;
+  return json_build_object('name', p.name, 'results', v_results, 'debts', v_debts, 'bookings', v_bookings, 'deleted', true);
 end $$;
 
 -- Til oprydning (kun fra SQL Editor): flet et navn ind i et andet i hele historikken.
@@ -621,7 +699,7 @@ alter table public.settings drop column if exists fridge_low_at;
 
 -- ───────────────────────────── Rettigheder ─────────────────────────────
 
-revoke all on public.booking_secrets, public.result_secrets from public;
+revoke all on public.booking_secrets, public.result_secrets, public.player_secrets from public;
 revoke insert, update, delete on public.bookings, public.settings, public.results, public.result_debts, public.players from public;
 revoke execute on all functions in schema public from public;
 grant execute on function
@@ -633,13 +711,15 @@ grant execute on function
   public.add_player(text),
   public.set_debt_paid(uuid, text, boolean),
   public.delete_result(uuid, text),
-  public.claim_my_seats(text)
+  public.claim_my_seats(text),
+  public.claim_player(text),
+  public.delete_player(text, text, boolean)
 to public;
 
 do $$
 begin
   if exists (select 1 from pg_roles where rolname = 'anon') then
-    revoke all on public.booking_secrets, public.result_secrets from anon, authenticated;
+    revoke all on public.booking_secrets, public.result_secrets, public.player_secrets from anon, authenticated;
     revoke insert, update, delete, truncate on public.bookings, public.settings, public.results, public.result_debts, public.players from anon, authenticated;
     grant select on public.bookings, public.settings, public.results, public.result_debts, public.players to anon, authenticated;
     revoke execute on all functions in schema public from anon, authenticated;
@@ -652,7 +732,9 @@ begin
       public.add_player(text),
       public.set_debt_paid(uuid, text, boolean),
       public.delete_result(uuid, text),
-      public.claim_my_seats(text)
+      public.claim_my_seats(text),
+      public.claim_player(text),
+      public.delete_player(text, text, boolean)
     to anon, authenticated;
   end if;
 end $$;

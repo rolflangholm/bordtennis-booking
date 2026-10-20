@@ -1,5 +1,5 @@
 // Spillerlisten: faste navne, så den samme person ikke findes under flere navne.
-import { $, esc, supabase, unwrap, rpc, toast } from './core.js?v=dev';
+import { $, esc, supabase, unwrap, rpc, toast, storage } from './core.js?v=dev';
 
 export const NEW = '__new__';
 const players = { list: [], byLower: new Map() };
@@ -9,6 +9,16 @@ export async function loadPlayers() {
   players.list = rows.map((r) => r.name).sort((a, b) => a.localeCompare(b, 'da'));
   players.byLower = new Map(players.list.map((n) => [n.toLowerCase(), n]));
   return players.list;
+}
+
+// Nøgler der beviser, at denne browser oprettede (eller først valgte) et navn.
+const keys = storage.get('bt-playerTokens', {});
+export const playerToken = (name) => (name ? keys[name.toLowerCase()] || null : null);
+export function setPlayerToken(name, token) {
+  if (!name) return;
+  if (token) keys[name.toLowerCase()] = token;
+  else delete keys[name.toLowerCase()];
+  storage.set('bt-playerTokens', keys);
 }
 
 export const isPlayer = (name) => Boolean(name && players.byLower.has(name.toLowerCase()));
@@ -90,6 +100,7 @@ export function createPlayer(prefill = '') {
       e.preventDefault();
       try {
         const p = await rpc('add_player', { p_name: form.name.value });
+        setPlayerToken(p.name, p.token);
         await loadPlayers();
         toast(`Velkommen, ${p.name}! Du er nu på spillerlisten 🏓`);
         finish(p.name);
