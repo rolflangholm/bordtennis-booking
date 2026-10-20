@@ -291,7 +291,7 @@ function askName(message = '') {
       empty: empty ? '— Ingen spillere endnu —' : '— Vælg dit navn —',
     });
     const me = isPlayer(state.name) ? canonical(state.name) : null;
-    $('#deleteMe').hidden = !(me && playerToken(me));
+    $('#deleteMe').hidden = !me;
     $('#deleteMe').textContent = me ? `Slet ${me} fra spillerlisten…` : '';
     $('#deleteMe').onclick = () => {
       dlg.close();
@@ -330,8 +330,17 @@ function askName(message = '') {
 
 // Slet dit navn: vis først, hvad der forsvinder, og kræv at navnet skrives for at bekræfte.
 async function deleteMe(name) {
-  const token = playerToken(name);
-  if (!name || !token) return;
+  if (!name) return;
+  let token = playerToken(name);
+  if (!token) {
+    // Navnet blev oprettet før navne-nøglerne fandtes: hent nøglen nu, hvis ingen anden browser har den.
+    token = await rpc('claim_player', { p_name: name }).catch(() => null);
+    if (token) setPlayerToken(name, token);
+  }
+  if (!token) {
+    toast(`${name} er knyttet til en anden browser (fx din telefon). Slet navnet derfra.`, true);
+    return;
+  }
   let impact;
   try {
     impact = await rpc('delete_player', { p_name: name, p_token: token });
@@ -542,6 +551,9 @@ function bindEvents() {
     } else if (d.resultBooking) {
       const b = $('#pending')._pending?.find((x) => x.id === d.resultBooking);
       if (b) resultFor(b);
+    } else if ('deleteMe' in d) {
+      el.closest('dialog')?.close();
+      deleteMe(canonical(state.name));
     } else if ('rules' in d) $('#rulesDialog').showModal();
     else if ('close' in d) el.closest('dialog').close();
   });

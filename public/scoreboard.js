@@ -600,7 +600,8 @@ function renderPlayerCard() {
     </div>
     ${owes.length ? `<h4>Skylder</h4>${groups(owes, 'creditor', '→')}` : ''}
     ${due.length ? `<h4>Har til gode fra</h4>${groups(due, 'debtor', '←')}` : ''}
-    ${!owes.length && !due.length ? '<p class="muted pc-empty">Ingen udestående drikke – hverken til eller fra. 🧾✓</p>' : ''}`;
+    ${!owes.length && !due.length ? '<p class="muted pc-empty">Ingen udestående drikke – hverken til eller fra. 🧾✓</p>' : ''}
+    ${same(name, sb.myName()) ? `<button type="button" class="link danger delete-me" data-delete-me>Slet ${esc(name)} fra spillerlisten…</button>` : ''}`;
 }
 
 export function openPlayerCard(name) {
